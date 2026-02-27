@@ -1,25 +1,53 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>贪吃蛇游戏</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>OpenClaw 贪吃蛇</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div class="container">
-        <h1>贪吃蛇游戏</h1>
-        <div class="info">
-            <div class="score">分数: <span id="score">0</span></div>
-            <div class="controls">方向键/WASD控制 | P暂停 | R重新开始</div>
+  <main class="container">
+    <header class="header">
+      <h1>OpenClaw 贪吃蛇</h1>
+      <div class="info">
+        <div class="score">分数: <span id="score">0</span></div>
+        <div class="status" id="statusText"></div>
+      </div>
+      <div class="hint">
+        键盘：方向键/WASD ｜ P 暂停 ｜ R 重开 ｜ M 自动
+        <br />
+        手机：滑动或点方向键
+      </div>
+    </header>
+
+    <section class="board" aria-label="游戏区域">
+      <canvas id="gameCanvas" aria-label="贪吃蛇游戏画布"></canvas>
+      <div id="overlay" class="overlay hidden" role="dialog" aria-modal="true">
+        <div class="overlay-card">
+          <h2 id="overlayTitle">游戏结束</h2>
+          <p>分数: <span id="finalScore">0</span></p>
+          <p class="overlay-hint">按 R 或点“重新开始”</p>
         </div>
-        <canvas id="gameCanvas"></canvas>
-        <div id="gameOver" class="game-over hidden">
-            <h2>游戏结束！</h2>
-            <p>最终分数: <span id="finalScore">0</span></p>
-            <p>按 R 重新开始</p>
-        </div>
-    </div>
-    <script src="main.js"></script>
+      </div>
+    </section>
+
+    <section class="controls" aria-label="控制区">
+      <div class="buttons">
+        <button id="btnPause" class="btn" type="button">暂停</button>
+        <button id="btnRestart" class="btn" type="button">重新开始</button>
+        <button id="btnAuto" class="btn btn-primary" type="button">自动：关</button>
+      </div>
+
+      <div class="dpad" aria-label="方向控制">
+        <button class="dpad-btn up" data-dir="up" type="button" aria-label="向上">▲</button>
+        <button class="dpad-btn left" data-dir="left" type="button" aria-label="向左">◀</button>
+        <button class="dpad-btn right" data-dir="right" type="button" aria-label="向右">▶</button>
+        <button class="dpad-btn down" data-dir="down" type="button" aria-label="向下">▼</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="main.js"></script>
 </body>
 </html>

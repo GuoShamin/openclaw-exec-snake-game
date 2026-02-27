@@ -1,53 +1,49 @@
-# 贪吃蛇游戏
+# OpenClaw 贪吃蛇（移动端适配 + 自动模式）
 
-一个简单的贪吃蛇小游戏，使用纯 HTML/CSS/JavaScript 实现，无需任何外部依赖。
+这是一个纯前端的贪吃蛇小游戏（HTML/CSS/JavaScript + Canvas），由 OpenClaw 生成并维护。
 
-## 如何运行
+## 在线使用
 
-### 方法 1：直接打开（推荐）
-直接双击 `index.html` 文件即可在浏览器中运行游戏。
+GitHub Pages：
+- https://guoshamin.github.io/openclaw-exec-snake-game/
 
-### 方法 2：使用本地服务器
-如果需要使用本地服务器运行：
+## 本地运行
+
+### 方法 1：直接打开
+
+直接双击 `index.html` 用浏览器打开即可。
+
+### 方法 2：本地服务器
+
+在目录内运行：
 
 ```bash
-# 使用 Python 3
-python -m http.server 8000
-
-# 使用 Python 2
-python -m SimpleHTTPServer 8000
+python3 -m http.server 8000
 ```
 
-然后在浏览器中访问 `http://localhost:8000`
+然后访问：`http://localhost:8000`
 
-## 游戏操作
+## 操作说明
 
-- **移动控制**：方向键 ↑↓←→ 或 WASD 键
-- **暂停游戏**：按 P 键
-- **重新开始**：按 R 键
+### 键盘
 
-## 游戏规则
+- 移动：方向键 / WASD
+- 暂停：`P`
+- 重新开始：`R`
+- 自动模式：`M`（自动寻路吃食物）
 
-1. 控制蛇吃到红色的食物来获得分数
-2. 每吃到一个食物得 10 分，蛇身会变长
-3. 随着分数增加，蛇的移动速度会逐渐加快
-4. 撞到墙壁或撞到自己的身体会导致游戏结束
+### 手机
+
+- 移动：在画布上滑动，或点击下方方向键
+- 暂停/继续：点击「暂停/继续」按钮
+- 自动模式：点击「自动：开/关」按钮
 
 ## 文件结构
 
 ```
-snake-game/
-├── index.html    # 主页面
-├── style.css     # 样式文件
-├── main.js       # 游戏逻辑
-└── README.md     # 说明文档
+openclaw-exec-snake-game/
+├── index.html
+├── style.css
+├── main.js
+└── README.md
 ```
-
-## 技术特点
-
-- 使用 Canvas API 绘制游戏画面
-- 响应式设计，适配不同屏幕尺寸
-- 流畅的游戏循环和碰撞检测
-- 简洁的代码结构，易于理解和修改
-
-祝你玩得开心！🐍
