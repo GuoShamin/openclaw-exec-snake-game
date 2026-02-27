@@ -1,67 +1,29 @@
-# 贪吃蛇（手机端优先 · 纯静态）
+# OpenClaw Code Lab
 
-一个无需构建、无外部依赖的贪吃蛇小游戏：`index.html` + `style.css` + `main.js`，使用 Canvas 绘制。
+这个仓库用于存放 **OpenClaw 相关**的可直接部署（GitHub Pages）的纯前端小项目。
 
-特性：
-- 移动端优先：画布随屏幕自适应（兼顾 iOS Safari 地址栏/安全区），页面不横向溢出
-- 触控操作：画布滑动改变方向 + 屏幕方向键（D-pad）
-- 桌面操作：方向键/WASD
-- 暂停/继续（按钮 + `P`）、重开（按钮 + `R`）、计分显示
-- 自动驾驶（按钮 + `M`）：优先吃食物，危险时尽量保守规避（不追求完美，但不会“一开就死”）
+## 项目：贪吃蛇（对比版）
 
-## 在线体验（GitHub Pages）
+同一个需求：**可以自动运行的贪吃蛇游戏 + 移动端适配**，分别由不同 CLI 生成：
 
-- https://guoshamin.github.io/openclaw-exec-snake-game/
+- `apps/claude/` → Claude Code
+- `apps/codex/` → Codex
+- `apps/gemini/` → Gemini CLI
+- `apps/qwen/` → Qwen Code
+
+根目录 `index.html` 是一个入口页，用于跳转到各版本。
+
+## 部署（GitHub Pages）
+
+这是纯静态站点：push 到默认分支后，GitHub Pages 会自动更新。
 
 ## 本地运行
 
-### 方法 1：直接打开（最简单）
-
-直接用浏览器打开 `index.html` 即可。
-
-### 方法 2：本地静态服务器（推荐）
-
-在仓库目录运行：
+在仓库根目录执行：
 
 ```bash
-python3 -m http.server 8000
+python3 -m http.server 5173
+# 然后打开 http://localhost:5173
 ```
 
-然后访问：`http://localhost:8000`
-
-## 操作方式
-
-### 手机端
-
-- 改变方向：在画布区域滑动（上/下/左/右）
-- 改变方向：点击屏幕方向键（▲◀▶▼）
-- 暂停/继续：点「暂停/继续」按钮（或外接键盘按 `P`）
-- 重新开始：点「重开」按钮（或外接键盘按 `R`）
-- 自动驾驶：点「自动：开/关」按钮（或外接键盘按 `M`）
-
-### 桌面端
-
-- 改变方向：方向键 / WASD
-- 暂停/继续：`P`
-- 重新开始：`R`
-- 自动驾驶：`M`
-
-## 规则
-
-- 撞墙或撞到自己：判负
-- 吃到食物：分数 +1，速度会略微加快
-
-## 部署到 GitHub Pages（可选）
-
-GitHub 仓库 `Settings` → `Pages`：
-- Source 选择 `Deploy from a branch`
-- Branch 选择 `main`（或你的默认分支） + `/ (root)`
-
-保存后等待生效，再访问上面的 Pages 链接。
-
-## 文件说明
-
-- `index.html`：页面结构、按钮与 D-pad
-- `style.css`：移动端布局（安全区/不溢出/大按钮）
-- `main.js`：游戏逻辑（rAF 稳定步进 + Canvas 绘制 + 自动驾驶）
-- `README.md`：使用说明
+> 直接用 `file://` 打开在某些浏览器会有资源/权限差异，建议用本地 server。

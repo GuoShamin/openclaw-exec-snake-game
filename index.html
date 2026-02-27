@@ -1,70 +1,50 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
-  />
-  <meta name="theme-color" content="#0b1220" />
-  <title>贪吃蛇</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>OpenClaw Code Lab</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#0b1020; --fg:#e8eaf2; --muted:#a8b0c2; --card:#121a33; --link:#6aa6ff; }
+    @media (prefers-color-scheme: light){ :root{ --bg:#f6f7fb; --fg:#111426; --muted:#4a5568; --card:#ffffff; --link:#1d4ed8; } }
+    body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--fg); }
+    .wrap{ max-width: 960px; margin: 0 auto; padding: 24px; }
+    h1{ margin: 0 0 6px; font-size: 24px; }
+    p{ margin: 0 0 16px; color: var(--muted); }
+    .grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .card{ background:var(--card); border:1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 14px; }
+    a{ color: var(--link); text-decoration: none; }
+    a:hover{ text-decoration: underline; }
+    .small{ font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .btnrow{ display:flex; flex-wrap:wrap; gap: 8px; margin-top: 10px; }
+    .btn{ display:inline-block; padding: 8px 10px; border-radius: 10px; background: rgba(106,166,255,.14); border:1px solid rgba(106,166,255,.25); }
+  </style>
 </head>
 <body>
-  <div class="app" id="app">
-    <header class="topbar" aria-label="状态栏">
-      <div class="brand">
-        <div class="title">贪吃蛇</div>
-        <div class="subtitle">手机端优先 · Canvas</div>
-      </div>
+  <div class="wrap">
+    <h1>OpenClaw Code Lab</h1>
+    <p>同一个需求（移动端适配、自动运行的贪吃蛇），分别由 Claude Code / Codex / Gemini CLI / Qwen Code 生成的实现。</p>
 
-      <div class="stats" aria-label="分数与状态">
-        <div class="stat">
-          <span class="label">分数</span>
-          <span class="value" id="score">0</span>
-        </div>
-        <div class="stat">
-          <span class="label">状态</span>
-          <span class="value" id="statusText">进行中</span>
-        </div>
+    <div class="grid">
+      <div class="card">
+        <strong>Claude Code 版本</strong>
+        <div class="btnrow"><a class="btn" href="apps/claude/">打开</a></div>
       </div>
-
-      <div class="actions" aria-label="快捷操作">
-        <button id="btnPause" class="btn" type="button" aria-label="暂停或继续（P）">暂停</button>
-        <button id="btnRestart" class="btn" type="button" aria-label="重新开始（R）">重开</button>
-        <button id="btnAuto" class="btn btn-accent" type="button" aria-label="自动驾驶开关（M）">自动：关</button>
+      <div class="card">
+        <strong>Codex 版本</strong>
+        <div class="btnrow"><a class="btn" href="apps/codex/">打开</a></div>
       </div>
-    </header>
-
-    <main class="content" aria-label="游戏区">
-      <section class="stage" id="stage" aria-label="游戏画布">
-        <canvas id="gameCanvas" aria-label="贪吃蛇画布"></canvas>
-        <div class="overlay" id="overlay" role="status" aria-live="polite" hidden>
-          <div class="overlayCard" role="dialog" aria-modal="true">
-            <div class="overlayTitle" id="overlayTitle">暂停</div>
-            <div class="overlayMeta">分数：<span id="overlayScore">0</span></div>
-            <div class="overlayHint" id="overlayHint">按 P 继续，或点“暂停”按钮</div>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <footer class="controls" aria-label="触控控制区">
-      <div class="controlsRow">
-        <div class="dpad" aria-label="方向键（D-pad）">
-          <button class="dpadBtn up" data-dir="up" type="button" aria-label="向上">▲</button>
-          <button class="dpadBtn left" data-dir="left" type="button" aria-label="向左">◀</button>
-          <button class="dpadBtn right" data-dir="right" type="button" aria-label="向右">▶</button>
-          <button class="dpadBtn down" data-dir="down" type="button" aria-label="向下">▼</button>
-        </div>
-        <div class="help" aria-label="操作提示">
-          <div class="helpLine">手机：在画布上滑动改变方向，或用方向键。</div>
-          <div class="helpLine">桌面：方向键/WASD，P 暂停/继续，R 重开，M 自动。</div>
-        </div>
+      <div class="card">
+        <strong>Gemini CLI 版本</strong>
+        <div class="btnrow"><a class="btn" href="apps/gemini/">打开</a></div>
       </div>
-    </footer>
+      <div class="card">
+        <strong>Qwen Code 版本</strong>
+        <div class="btnrow"><a class="btn" href="apps/qwen/">打开</a></div>
+      </div>
+    </div>
+
+    <p class="small">提示：如果手机全屏显示不理想，试试横屏；各版本会尽量自适应。</p>
   </div>
-
-  <script src="main.js" defer></script>
 </body>
 </html>
