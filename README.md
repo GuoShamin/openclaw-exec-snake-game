@@ -8,7 +8,7 @@
 
 - `apps/claude/` → Claude Code
 - `apps/codex/` → Codex
-- `apps/gemini/` → Gemini CLI
+- `apps/gemini/` → Gemini CLI（当前账号验证拦截，暂未生成）
 - `apps/qwen/` → Qwen Code
 
 根目录 `index.html` 是一个入口页，用于跳转到各版本。

@@ -2,15 +2,17 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Snake</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>贪吃蛇 Snake</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main class="wrap">
     <header class="top">
-      <h1>Snake</h1>
-      <div class="meta" id="meta"></div>
+      <h1>🐍 Snake</h1>
+      <div class="meta" id="meta">分数：0 | 速度：5</div>
     </header>
 
     <section class="board">
@@ -18,12 +20,15 @@
     </section>
 
     <section class="controls">
-      <button id="btnStart" class="btn">Start</button>
-      <button id="btnPause" class="btn">Pause</button>
-      <button id="btnRestart" class="btn">Restart</button>
+      <button id="btnStart" class="btn" type="button">Start</button>
+      <button id="btnPause" class="btn" type="button">Pause</button>
+      <button id="btnRestart" class="btn" type="button">Restart</button>
     </section>
 
-    <p class="hint">Mobile: swipe to turn. Desktop: arrow keys / WASD. Autoplay should start by default.</p>
+    <p class="hint">
+      📱 移动端：滑动屏幕控制方向<br>
+      ⌨️ 桌面端：方向键 / WASD 控制，空格暂停
+    </p>
   </main>
 
   <script src="main.js"></script>
