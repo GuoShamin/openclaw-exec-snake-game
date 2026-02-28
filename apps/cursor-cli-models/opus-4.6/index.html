@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>贪吃蛇 · 自动驾驶</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #0a0a1a;
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+h1 {
+  font-size: clamp(1rem, 4vw, 1.4rem);
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: 0.05em;
+  color: #7fdbca;
+}
+
+#hud {
+  display: flex;
+  gap: 1.5rem;
+  font-size: clamp(0.75rem, 2.5vw, 0.95rem);
+  margin-bottom: 8px;
+  color: #aaa;
+}
+#hud span { color: #f0c674; font-weight: 700; }
+
+canvas {
+  border: 2px solid #2a2a4a;
+  border-radius: 6px;
+  background: #0f0f23;
+  display: block;
+  image-rendering: pixelated;
+}
+
+#controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+button {
+  background: #1e1e3a;
+  color: #ccc;
+  border: 1px solid #3a3a5c;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-size: clamp(0.75rem, 2.5vw, 0.9rem);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button:hover, button:active { background: #2e2e5a; color: #fff; }
+button.active { background: #3a6a3a; border-color: #5a9a5a; color: #fff; }
+
+#info {
+  margin-top: 8px;
+  font-size: clamp(0.65rem, 2vw, 0.78rem);
+  color: #666;
+  text-align: center;
+  max-width: 90vw;
+  line-height: 1.4;
+}
+</style>
+</head>
+<body>
+
+<h1>🐍 贪吃蛇 · 自动驾驶</h1>
+<div id="hud">
+  得分: <span id="score">0</span>
+  &nbsp;|&nbsp;
+  最高: <span id="high">0</span>
+  &nbsp;|&nbsp;
+  长度: <span id="len">3</span>
+</div>
+<canvas id="c"></canvas>
+<div id="controls">
+  <button id="btn-pause">暂停</button>
+  <button id="btn-speed">速度: 正常</button>
+  <button id="btn-reset">重置</button>
+  <button id="btn-manual" title="手动模式下可用方向键/滑动控制">自动驾驶 ✓</button>
+</div>
+<div id="info">
+  策略: Hamilton 回路 + BFS 捷径 — 蛇沿哈密顿回路保证安全，短蛇时走 BFS 捷径加速吃食物
+</div>
+
+<script>
+/*
+ * ===== 自动驾驶策略 =====
+ *
+ * 1. 预计算哈密顿回路 (Hamilton Cycle):
+ *    在 (COLS/2 × ROWS/2) 宏网格上随机 DFS 生成树 → 展开为细网格 →
+ *    细网格中，生成树边对应的内墙被移除，沿剩余墙壁用右手法则追踪
+ *    得到覆盖全部 COLS×ROWS 格子的回路。
+ *
+ * 2. 蛇沿此回路行走保证永不自撞（回路覆盖所有格子，蛇永远在追自己的尾巴）。
+ *
+ * 3. 优化 — BFS 捷径:
+ *    当蛇较短时（< 棋盘50%），用 BFS 找蛇头到食物的最短路径，
+ *    模拟走完后检查哈密顿序上蛇头不会追上蛇尾，安全则走捷径。
+ *
+ * 4. 备用: 若随机回路生成失败，回退到确定性的蛇形(zigzag)回路。
+ */
+
+(function () {
+  const $ = s => document.querySelector(s);
+  const canvas = $("#c");
+  const ctx = canvas.getContext("2d");
+
+  const COLS = 20;
+  const ROWS = 20;
+  const TOTAL = COLS * ROWS;
+  let CELL;
+
+  function resize() {
+    const maxW = Math.min(window.innerWidth - 16, 560);
+    const maxH = window.innerHeight - 200;
+    CELL = Math.floor(Math.min(maxW, maxH) / Math.max(COLS, ROWS));
+    if (CELL < 12) CELL = 12;
+    canvas.width = COLS * CELL;
+    canvas.height = ROWS * CELL;
+  }
+  resize();
+  window.addEventListener("resize", resize);
+
+  const UP = 0, RIGHT = 1, DOWN = 2, LEFT = 3;
+  const DX = [0, 1, 0, -1];
+  const DY = [-1, 0, 1, 0];
+  const OPP = [2, 3, 0, 1];
+
+  function cellIdx(x, y) { return y * COLS + x; }
+  function cellXY(i) { return [i % COLS, (i / COLS) | 0]; }
+
+  /* ======== 哈密顿回路 ======== */
+
+  // 蛇形(zigzag)回路 — 确定性，100% 正确
+  function zigzagCycle() {
+    const cycle = new Int32Array(TOTAL);
+    const order = new Int32Array(TOTAL);
+    let s = 0;
+    // 第0行: 左→右
+    for (let x = 0; x < COLS; x++) { cycle[s] = cellIdx(x, 0); order[cellIdx(x, 0)] = s; s++; }
+    // 第1~(ROWS-1)行: 蛇形，但第0列留给回路通道
+    for (let y = 1; y < ROWS; y++) {
+      if (y % 2 === 1) {
+        for (let x = COLS - 1; x >= 1; x--) { cycle[s] = cellIdx(x, y); order[cellIdx(x, y)] = s; s++; }
+      } else {
+        for (let x = 1; x < COLS; x++) { cycle[s] = cellIdx(x, y); order[cellIdx(x, y)] = s; s++; }
+      }
+    }
+    // 第0列: 从底部回到(0,1)
+    for (let y = ROWS - 1; y >= 1; y--) { cycle[s] = cellIdx(0, y); order[cellIdx(0, y)] = s; s++; }
+    return { cycle, orderOf: order };
+  }
+
+  // 基于生成树的随机哈密顿回路
+  function randomHamiltonCycle() {
+    const hw = COLS >> 1, hh = ROWS >> 1;
+
+    // 随机 DFS 生成树（宏网格）
+    const vis = Array.from({ length: hh }, () => new Uint8Array(hw));
+    // 用 Set 存储生成树的边 (规范化 key)
+    const treeEdges = new Set();
+    const stk = [[0, 0]];
+    vis[0][0] = 1;
+    while (stk.length) {
+      const [cx, cy] = stk[stk.length - 1];
+      const nb = [];
+      for (let d = 0; d < 4; d++) {
+        const nx = cx + DX[d], ny = cy + DY[d];
+        if (nx >= 0 && nx < hw && ny >= 0 && ny < hh && !vis[ny][nx]) nb.push([nx, ny]);
+      }
+      if (!nb.length) { stk.pop(); continue; }
+      const [nx, ny] = nb[(Math.random() * nb.length) | 0];
+      vis[ny][nx] = 1;
+      const a = cy * hw + cx, b = ny * hw + nx;
+      treeEdges.add(a < b ? a * 1000 + b : b * 1000 + a);
+      stk.push([nx, ny]);
+    }
+
+    // 构建细网格的墙壁信息
+    // wall[y][x] 是一个 bitmask: bit0=UP有墙, bit1=RIGHT有墙, bit2=DOWN有墙, bit3=LEFT有墙
+    // 细格子之间：同一宏格子内无墙；跨宏格子时，有生成树边=无墙，无生成树边=有墙
+    // 但哈密顿回路要沿墙壁走，所以逻辑相反：
+    // 细格子可通行 iff 同一宏格子 OR 跨越的宏边界没有生成树边
+
+    function canMove(x, y, d) {
+      const nx = x + DX[d], ny = y + DY[d];
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) return false;
+      const mx1 = x >> 1, my1 = y >> 1, mx2 = nx >> 1, my2 = ny >> 1;
+      if (mx1 === mx2 && my1 === my2) return true;
+      const a = my1 * hw + mx1, b = my2 * hw + mx2;
+      const key = a < b ? a * 1000 + b : b * 1000 + a;
+      // 生成树边 = 宏格子间有通道 = 回路不能穿过（回路沿墙走）
+      return !treeEdges.has(key);
+    }
+
+    // 右手法则追踪
+    const order = new Int32Array(TOTAL).fill(-1);
+    const cycle = new Int32Array(TOTAL);
+    let cx = 0, cy = 0, cd = DOWN;
+
+    for (let s = 0; s < TOTAL; s++) {
+      cycle[s] = cellIdx(cx, cy);
+      order[cellIdx(cx, cy)] = s;
+
+      // 右手法则: 优先右转 → 直走 → 左转 → 掉头
+      let moved = false;
+      const turns = [(cd + 1) % 4, cd, (cd + 3) % 4, (cd + 2) % 4];
+      for (const nd of turns) {
+        const nx = cx + DX[nd], ny = cy + DY[nd];
+        if (canMove(cx, cy, nd) && order[cellIdx(nx, ny)] === -1) {
+          cx = nx; cy = ny; cd = nd; moved = true; break;
+        }
+      }
+      if (!moved && s === TOTAL - 1) {
+        // 最后一步，检查是否能回到起点
+        break;
+      }
+      if (!moved) {
+        // 追踪失败，回退到 zigzag
+        return null;
+      }
+    }
+
+    // 验证: 所有格子都被覆盖
+    for (let i = 0; i < TOTAL; i++) {
+      if (order[i] === -1) return null;
+    }
+
+    // 验证: 最后一个格子与第一个格子相邻
+    const last = cycle[TOTAL - 1];
+    const first = cycle[0];
+    const [lx, ly] = cellXY(last);
+    const [fx, fy] = cellXY(first);
+    if (Math.abs(lx - fx) + Math.abs(ly - fy) !== 1) return null;
+
+    return { cycle, orderOf: order };
+  }
+
+  function buildHamiltonCycle() {
+    // 尝试随机回路，失败则用 zigzag
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const result = randomHamiltonCycle();
+      if (result) return result;
+    }
+    return zigzagCycle();
+  }
+
+  let hamilton = buildHamiltonCycle();
+
+  /* ======== 游戏状态 ======== */
+  let snake, food, dir, score, highScore, alive, paused, autoMode;
+  let speedLevel = 1;
+  const SPEEDS = [180, 100, 40];
+  const SPEED_NAMES = ["慢速", "正常", "快速"];
+
+  highScore = parseInt(localStorage.getItem("snake-hs") || "0", 10);
+
+  function init() {
+    const h0 = hamilton.cycle[2];
+    const h1 = hamilton.cycle[1];
+    const h2 = hamilton.cycle[0];
+    snake = [h0, h1, h2];
+    dir = dirBetween(h1, h0);
+    score = 0;
+    alive = true;
+    paused = false;
+    autoMode = true;
+    placeFood();
+    updateHUD();
+    updateAutoBtn();
+  }
+
+  function placeFood() {
+    const occ = new Set(snake);
+    const free = [];
+    for (let i = 0; i < TOTAL; i++) if (!occ.has(i)) free.push(i);
+    if (!free.length) { alive = false; return; }
+    food = free[(Math.random() * free.length) | 0];
+  }
+
+  /* ======== BFS ======== */
+  function bfs(start, goal, blocked) {
+    if (start === goal) return [];
+    const prev = new Int32Array(TOTAL).fill(-1);
+    const vis = new Uint8Array(TOTAL);
+    vis[start] = 1;
+    const q = [start];
+    let qi = 0;
+    while (qi < q.length) {
+      const cur = q[qi++];
+      const [cx, cy] = cellXY(cur);
+      for (let d = 0; d < 4; d++) {
+        const nx = cx + DX[d], ny = cy + DY[d];
+        if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+        const ni = cellIdx(nx, ny);
+        if (vis[ni] || blocked.has(ni)) continue;
+        vis[ni] = 1;
+        prev[ni] = cur;
+        if (ni === goal) {
+          const path = [];
+          let p = goal;
+          while (p !== start) { path.push(p); p = prev[p]; }
+          path.reverse();
+          return path;
+        }
+        q.push(ni);
+      }
+    }
+    return null;
+  }
+
+  function dirBetween(from, to) {
+    const [fx, fy] = cellXY(from);
+    const [tx, ty] = cellXY(to);
+    if (tx - fx === 1) return RIGHT;
+    if (tx - fx === -1) return LEFT;
+    if (ty - fy === 1) return DOWN;
+    return UP;
+  }
+
+  /* ======== 自动驾驶 ======== */
+  function autoDir() {
+    const head = snake[0];
+    const ho = hamilton.orderOf[head];
+
+    // 哈密顿回路的下一步
+    const hamNext = hamilton.cycle[(ho + 1) % TOTAL];
+    const hamDir = dirBetween(head, hamNext);
+
+    // 蛇较短时尝试 BFS 捷径
+    if (snake.length < TOTAL * 0.5) {
+      const blocked = new Set(snake.slice(0, -1));
+      const path = bfs(head, food, blocked);
+      if (path && path.length > 0) {
+        const futureHO = hamilton.orderOf[path[path.length - 1]];
+        const tailIdx = Math.max(0, snake.length - path.length);
+        const futureTO = hamilton.orderOf[snake[tailIdx]];
+        const gap = (futureTO - futureHO + TOTAL) % TOTAL;
+        if (gap > snake.length + 4) {
+          const sd = dirBetween(head, path[0]);
+          if (!isDanger(head, sd)) return sd;
+        }
+      }
+    }
+
+    if (!isDanger(head, hamDir)) return hamDir;
+    return safeFallback(head);
+  }
+
+  function isDanger(head, d) {
+    const [hx, hy] = cellXY(head);
+    const nx = hx + DX[d], ny = hy + DY[d];
+    if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) return true;
+    const ni = cellIdx(nx, ny);
+    for (let i = 0; i < snake.length - 1; i++) if (snake[i] === ni) return true;
+    return false;
+  }
+
+  function safeFallback(head) {
+    const [hx, hy] = cellXY(head);
+    const body = new Set(snake.slice(0, -1));
+    for (let d = 0; d < 4; d++) {
+      const nx = hx + DX[d], ny = hy + DY[d];
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+      if (!body.has(cellIdx(nx, ny))) return d;
+    }
+    return RIGHT;
+  }
+
+  /* ======== 步进 ======== */
+  function step() {
+    if (!alive || paused) return;
+    if (autoMode) dir = autoDir();
+
+    const [hx, hy] = cellXY(snake[0]);
+    const nx = hx + DX[dir], ny = hy + DY[dir];
+    if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) { die(); return; }
+    const ni = cellIdx(nx, ny);
+    if (new Set(snake).has(ni)) { die(); return; }
+
+    snake.unshift(ni);
+    if (ni === food) {
+      score += 10;
+      if (score > highScore) {
+        highScore = score;
+        try { localStorage.setItem("snake-hs", String(highScore)); } catch {}
+      }
+      placeFood();
+    } else {
+      snake.pop();
+    }
+    updateHUD();
+  }
+
+  function die() {
+    alive = false;
+    setTimeout(() => { hamilton = buildHamiltonCycle(); init(); }, 1500);
+  }
+
+  function updateHUD() {
+    $("#score").textContent = score;
+    $("#high").textContent = highScore;
+    $("#len").textContent = snake.length;
+  }
+
+  /* ======== 渲染 ======== */
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = "#1a1a30";
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x <= COLS; x++) {
+      ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, ROWS * CELL); ctx.stroke();
+    }
+    for (let y = 0; y <= ROWS; y++) {
+      ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(COLS * CELL, y * CELL); ctx.stroke();
+    }
+
+    if (food !== undefined) {
+      const [fx, fy] = cellXY(food);
+      ctx.fillStyle = "#ff6b6b";
+      ctx.shadowColor = "#ff6b6b";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(fx * CELL + CELL / 2, fy * CELL + CELL / 2, CELL * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    for (let i = snake.length - 1; i >= 0; i--) {
+      const [sx, sy] = cellXY(snake[i]);
+      const t = i / Math.max(snake.length - 1, 1);
+      if (i === 0) {
+        ctx.fillStyle = alive ? "#7fdbca" : "#ff4444";
+        ctx.shadowColor = "#7fdbca";
+        ctx.shadowBlur = 6;
+      } else {
+        const g = Math.round(180 - t * 80);
+        ctx.fillStyle = "rgb(40," + g + "," + Math.round(140 - t * 40) + ")";
+        ctx.shadowBlur = 0;
+      }
+      const pad = i === 0 ? 0.5 : 1;
+      const r = i === 0 ? 4 : 2;
+      rrect(sx * CELL + pad, sy * CELL + pad, CELL - pad * 2, CELL - pad * 2, r);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    if (!alive) {
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#ff6b6b";
+      ctx.font = "bold " + (CELL * 1.2) + "px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 10);
+      ctx.fillStyle = "#aaa";
+      ctx.font = (CELL * 0.6) + "px sans-serif";
+      ctx.fillText("自动重启中...", canvas.width / 2, canvas.height / 2 + CELL);
+    }
+
+    if (paused && alive) {
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#f0c674";
+      ctx.font = "bold " + CELL + "px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("已暂停", canvas.width / 2, canvas.height / 2);
+    }
+  }
+
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  /* ======== 主循环 ======== */
+  let lastStep = 0;
+  function loop(ts) {
+    if (ts - lastStep >= SPEEDS[speedLevel]) { step(); lastStep = ts; }
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  /* ======== 输入 ======== */
+  document.addEventListener("keydown", e => {
+    if (e.key === " " || e.key === "Escape") { paused = !paused; updatePauseBtn(); e.preventDefault(); return; }
+    if (autoMode || !alive) return;
+    const km = { ArrowUp: UP, ArrowDown: DOWN, ArrowLeft: LEFT, ArrowRight: RIGHT, w: UP, s: DOWN, a: LEFT, d: RIGHT };
+    const nd = km[e.key];
+    if (nd !== undefined && nd !== OPP[dir]) { dir = nd; e.preventDefault(); }
+  });
+
+  let touchXY = null;
+  canvas.addEventListener("touchstart", e => { e.preventDefault(); touchXY = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, { passive: false });
+  canvas.addEventListener("touchmove", e => { e.preventDefault(); }, { passive: false });
+  canvas.addEventListener("touchend", e => {
+    e.preventDefault();
+    if (!touchXY || autoMode || !alive) { touchXY = null; return; }
+    const dx = e.changedTouches[0].clientX - touchXY.x;
+    const dy = e.changedTouches[0].clientY - touchXY.y;
+    touchXY = null;
+    if (Math.abs(dx) < 15 && Math.abs(dy) < 15) return;
+    const nd = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? RIGHT : LEFT) : (dy > 0 ? DOWN : UP);
+    if (nd !== OPP[dir]) dir = nd;
+  }, { passive: false });
+  document.body.addEventListener("touchmove", e => { e.preventDefault(); }, { passive: false });
+
+  /* ======== 按钮 ======== */
+  function updatePauseBtn() { $("#btn-pause").textContent = paused ? "继续" : "暂停"; }
+  function updateAutoBtn() {
+    const b = $("#btn-manual");
+    b.textContent = autoMode ? "自动驾驶 ✓" : "手动模式";
+    b.classList.toggle("active", autoMode);
+  }
+
+  $("#btn-pause").onclick = () => { paused = !paused; updatePauseBtn(); };
+  $("#btn-speed").onclick = () => { speedLevel = (speedLevel + 1) % 3; $("#btn-speed").textContent = "速度: " + SPEED_NAMES[speedLevel]; };
+  $("#btn-reset").onclick = () => { hamilton = buildHamiltonCycle(); init(); };
+  $("#btn-manual").onclick = () => { autoMode = !autoMode; updateAutoBtn(); };
+
+  /* ======== 启动 ======== */
+  init();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

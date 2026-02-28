@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>贪吃蛇 · 自动驾驶</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #1a1a2e;
+      color: #eee;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    h1 {
+      font-size: clamp(1rem, 4vw, 1.5rem);
+      margin-bottom: 0.5rem;
+      color: #0f3460;
+    }
+    .info {
+      font-size: clamp(0.75rem, 3vw, 0.9rem);
+      margin-bottom: 0.5rem;
+      opacity: 0.8;
+    }
+    #game-wrap {
+      position: relative;
+      touch-action: none;
+    }
+    #canvas {
+      display: block;
+      background: #16213e;
+      border: 2px solid #0f3460;
+      border-radius: 4px;
+      touch-action: none;
+    }
+    .score {
+      margin-top: 0.5rem;
+      font-size: clamp(0.9rem, 3.5vw, 1.1rem);
+    }
+  </style>
+</head>
+<body>
+  <h1>🐍 贪吃蛇 · 自动驾驶</h1>
+  <p class="info">BFS + 安全策略 · 自动寻路</p>
+  <div id="game-wrap">
+    <canvas id="canvas" width="400" height="400"></canvas>
+  </div>
+  <p class="score">得分: <span id="score">0</span></p>
+
+  <script>
+    /**
+     * 自动驾驶策略说明：
+     * 1. BFS 寻路：从蛇头到食物找最短路径
+     * 2. 安全检验：若走该路径吃食物后，蛇头能否到达蛇尾（避免吃完后被困死）
+     * 3. 若安全则走；否则采用「跟随蛇尾」策略，向蛇尾方向移动以保持活动空间
+     * 4. 若两者都不可行，选一个不会立刻撞墙/撞自己的方向
+     */
+
+    const GRID = 20;
+    const COLS = 20;
+    const ROWS = 20;
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+
+    let snake = [];
+    let food = { x: 0, y: 0 };
+    let dir = { x: 1, y: 0 };
+    let score = 0;
+    let gameOver = false;
+    let animId = null;
+    const TICK_MS = 120;
+    let lastTick = 0;
+
+    const DX = [0, 1, 0, -1];
+    const DY = [-1, 0, 1, 0];
+
+    function resizeCanvas() {
+      const wrap = document.getElementById('game-wrap');
+      const maxW = Math.min(window.innerWidth - 24, 400);
+      const maxH = Math.min(window.innerHeight - 140, 400);
+      const size = Math.min(maxW, maxH);
+      canvas.width = size;
+      canvas.height = size;
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    function init() {
+      resizeCanvas();
+      snake = [
+        { x: 5, y: 10 },
+        { x: 4, y: 10 },
+        { x: 3, y: 10 }
+      ];
+      dir = { x: 1, y: 0 };
+      score = 0;
+      gameOver = false;
+      spawnFood();
+      scoreEl.textContent = score;
+      lastTick = 0;
+      if (animId) cancelAnimationFrame(animId);
+      requestAnimationFrame(loop);
+    }
+
+    function spawnFood() {
+      const occupied = new Set(snake.map(s => `${s.x},${s.y}`));
+      const free = [];
+      for (let y = 0; y < ROWS; y++)
+        for (let x = 0; x < COLS; x++)
+          if (!occupied.has(`${x},${y}`)) free.push({ x, y });
+      if (free.length === 0) return;
+      food = free[Math.floor(Math.random() * free.length)];
+    }
+
+    function occupiedSet(ignoreTail) {
+      const set = new Set();
+      const len = ignoreTail ? snake.length - 1 : snake.length;
+      for (let i = 0; i < len; i++)
+        set.add(`${snake[i].x},${snake[i].y}`);
+      return set;
+    }
+
+    function bfs(from, to, blocks) {
+      const q = [{ x: from.x, y: from.y, path: [] }];
+      const vis = new Set();
+      vis.add(`${from.x},${from.y}`);
+      while (q.length) {
+        const cur = q.shift();
+        if (cur.x === to.x && cur.y === to.y) return cur.path;
+        for (let d = 0; d < 4; d++) {
+          const nx = cur.x + DX[d], ny = cur.y + DY[d];
+          if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+          const key = `${nx},${ny}`;
+          if (vis.has(key) || blocks.has(key)) continue;
+          vis.add(key);
+          q.push({ x: nx, y: ny, path: cur.path.concat([{ x: DX[d], y: DY[d] }]) });
+        }
+      }
+      return null;
+    }
+
+    function canReach(from, to, blocks) {
+      const q = [{ x: from.x, y: from.y }];
+      const vis = new Set();
+      vis.add(`${from.x},${from.y}`);
+      while (q.length) {
+        const cur = q.shift();
+        if (cur.x === to.x && cur.y === to.y) return true;
+        for (let d = 0; d < 4; d++) {
+          const nx = cur.x + DX[d], ny = cur.y + DY[d];
+          if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+          const key = `${nx},${ny}`;
+          if (vis.has(key) || blocks.has(key)) continue;
+          vis.add(key);
+          q.push({ x: nx, y: ny });
+        }
+      }
+      return false;
+    }
+
+    function chooseDirection() {
+      const head = snake[0];
+      const tail = snake[snake.length - 1];
+      const blocks = occupiedSet(true);
+
+      const pathToFood = bfs(head, food, blocks);
+      if (pathToFood && pathToFood.length > 0) {
+        const firstStep = pathToFood[0];
+        const newHead = { x: head.x + firstStep.x, y: head.y + firstStep.y };
+        const virtualSnake = [newHead, ...snake];
+        if (newHead.x === food.x && newHead.y === food.y) {
+          virtualSnake.push(tail);
+        } else {
+          virtualSnake.pop();
+        }
+        const virtualBlocks = new Set();
+        for (let i = 1; i < virtualSnake.length; i++)
+          virtualBlocks.add(`${virtualSnake[i].x},${virtualSnake[i].y}`);
+        const newTail = virtualSnake[virtualSnake.length - 1];
+        if (canReach(newHead, newTail, virtualBlocks))
+          return firstStep;
+      }
+
+      const pathToTail = bfs(head, tail, blocks);
+      if (pathToTail && pathToTail.length > 0)
+        return pathToTail[0];
+
+      for (let d = 0; d < 4; d++) {
+        const nx = head.x + DX[d], ny = head.y + DY[d];
+        if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+        if (blocks.has(`${nx},${ny}`)) continue;
+        return { x: DX[d], y: DY[d] };
+      }
+      return null;
+    }
+
+    function tick() {
+      if (gameOver) return;
+      const next = chooseDirection();
+      if (next) dir = next;
+      const head = snake[0];
+      const nx = head.x + dir.x, ny = head.y + dir.y;
+      if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) {
+        gameOver = true;
+        return;
+      }
+      if (snake.some(s => s.x === nx && s.y === ny)) {
+        gameOver = true;
+        return;
+      }
+      snake.unshift({ x: nx, y: ny });
+      if (nx === food.x && ny === food.y) {
+        score++;
+        scoreEl.textContent = score;
+        spawnFood();
+      } else {
+        snake.pop();
+      }
+    }
+
+    function draw() {
+      const cw = canvas.width / COLS;
+      const ch = canvas.height / ROWS;
+      ctx.fillStyle = '#16213e';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#0f3460';
+      for (let i = 0; i <= COLS; i++) {
+        ctx.fillRect(i * cw - 0.5, 0, 1, canvas.height);
+      }
+      for (let i = 0; i <= ROWS; i++) {
+        ctx.fillRect(0, i * ch - 0.5, canvas.width, 1);
+      }
+      ctx.fillStyle = '#4ecca3';
+      snake.forEach((s, i) => {
+        const alpha = 1 - i * 0.03;
+        ctx.globalAlpha = Math.max(0.5, alpha);
+        ctx.fillRect(s.x * cw + 1, s.y * ch + 1, cw - 2, ch - 2);
+      });
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#e94560';
+      ctx.beginPath();
+      ctx.arc(food.x * cw + cw / 2, food.y * ch + ch / 2, cw / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+      if (gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 24px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText('游戏结束', canvas.width / 2, canvas.height / 2 - 10);
+        ctx.font = '16px system-ui';
+        ctx.fillText('得分: ' + score, canvas.width / 2, canvas.height / 2 + 20);
+        ctx.font = '14px system-ui';
+        ctx.fillText('点击/触摸重新开始', canvas.width / 2, canvas.height / 2 + 45);
+      }
+    }
+
+    document.getElementById('game-wrap').addEventListener('click', () => {
+      if (gameOver) init();
+    });
+    document.getElementById('game-wrap').addEventListener('touchend', (e) => {
+      if (gameOver) { e.preventDefault(); init(); }
+    }, { passive: false });
+
+    function loop(now) {
+      draw();
+      if (!gameOver) {
+        if (now - lastTick >= TICK_MS) {
+          lastTick = now;
+          tick();
+        }
+        animId = requestAnimationFrame(loop);
+      }
+    }
+
+    document.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+    document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    document.addEventListener('touchend', e => e.preventDefault(), { passive: false });
+
+    init();
+  </script>
+</body>
+</html>

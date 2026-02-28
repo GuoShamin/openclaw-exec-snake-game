@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>自动驾驶贪吃蛇</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <h1>自动驾驶贪吃蛇</h1>
+        <div class="score-board">分数: <span id="score">0</span></div>
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+        <div class="controls">
+            <button id="toggle-auto">切换模式 (当前: 自动)</button>
+            <button id="restart">重新开始</button>
+        </div>
+        <div class="instructions">
+            移动端：滑动屏幕可手动控制（需切换为手动模式）。<br>
+            策略：使用 BFS（广度优先搜索）寻找食物最短路径。若无路径则尝试安全移动以求生。
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

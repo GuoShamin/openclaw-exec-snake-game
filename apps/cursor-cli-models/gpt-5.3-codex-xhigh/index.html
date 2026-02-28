@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+  />
+  <title>Snake 自动驾驶</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app" id="game-area">
+    <header class="panel">
+      <h1>Snake 自动驾驶</h1>
+      <div class="stats">
+        <div>分数：<strong id="score">0</strong></div>
+        <div>最高：<strong id="best">0</strong></div>
+        <div>局数：<strong id="round">1</strong></div>
+      </div>
+      <div class="actions">
+        <button id="autoBtn" type="button" aria-pressed="true">自动驾驶：开</button>
+        <button id="restartBtn" type="button">重开</button>
+      </div>
+      <p id="status" class="status">自动驾驶已启动。</p>
+    </header>
+
+    <section class="board-wrap">
+      <canvas
+        id="gameCanvas"
+        width="420"
+        height="420"
+        role="img"
+        aria-label="贪吃蛇游戏画布"
+      ></canvas>
+    </section>
+
+    <section class="manual-controls" aria-label="手动方向控制">
+      <button type="button" data-dir="up">↑</button>
+      <button type="button" data-dir="left">←</button>
+      <button type="button" data-dir="down">↓</button>
+      <button type="button" data-dir="right">→</button>
+    </section>
+
+    <p class="hint">
+      默认自动驾驶。关闭自动驾驶后，可用键盘方向键、触屏滑动或上方按键手动控制。
+    </p>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

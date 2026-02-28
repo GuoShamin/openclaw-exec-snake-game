@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Snake Auto</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app" id="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="title">Snake Auto</div>
+          <div class="sub">自动驾驶贪吃蛇（移动端可用）</div>
+        </div>
+
+        <div class="stats" aria-live="polite">
+          <div class="stat"><span class="k">得分</span><span class="v" id="score">0</span></div>
+          <div class="stat"><span class="k">长度</span><span class="v" id="len">0</span></div>
+          <div class="stat"><span class="k">速度</span><span class="v" id="spdLabel">10</span></div>
+          <div class="stat"><span class="k">状态</span><span class="v" id="status">运行中</span></div>
+        </div>
+
+        <div class="controls">
+          <label class="slider">
+            <span>速度</span>
+            <input id="speed" type="range" min="3" max="25" value="10" />
+          </label>
+          <button id="pauseBtn" class="btn" type="button">暂停</button>
+          <button id="resetBtn" class="btn btn-ghost" type="button">重开</button>
+        </div>
+      </header>
+
+      <main class="stage">
+        <canvas id="game" aria-label="Snake game canvas"></canvas>
+
+        <div class="hint" id="hint">
+          已开启自动驾驶。你也可以用键盘方向键或在画面上滑动来临时改向（不会影响自动继续决策）。
+        </div>
+      </main>
+
+      <footer class="footer">
+        <div class="pill">GitHub Pages 友好：全部相对路径、纯静态</div>
+        <div class="pill">触控防滚动：touch-action + 阻止默认触摸滚动</div>
+        <div class="pill">策略：优先 BFS 吃食物；不安全则追尾保命</div>
+      </footer>
+    </div>
+
+    <script src="./main.js"></script>
+  </body>
+</html>

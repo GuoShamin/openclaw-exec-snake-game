@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI 贪吃蛇自动驾驶</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui-layer">
+            <h1>AI 贪吃蛇</h1>
+            <p>分数: <span id="score">0</span></p>
+            <p class="status">状态: <span id="status">运行中</span></p>
+            <button id="restartBtn">重置游戏</button>
+            <div class="controls-hint">
+                <p>自动驾驶模式 (BFS + 安全策略)</p>
+            </div>
+        </div>
+    </div>
+    <script src="./game.js"></script>
+</body>
+</html>

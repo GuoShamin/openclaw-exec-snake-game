@@ -8,11 +8,12 @@
 
 - `apps/claude/` → Claude Code
 - `apps/codex/` → Codex
-- `apps/cursor-cli/` → Cursor CLI（agent）
-- `apps/gemini/` → Gemini CLI（当前账号验证拦截，暂未生成）
+- `apps/cursor-cli/` → Cursor CLI（单版本）
+- `apps/cursor-cli-models/` → Cursor CLI（**同一 prompt 的多模型对比**）
+- `apps/gemini/` → Gemini CLI
 - `apps/qwen/` → Qwen Code
 
-根目录 `index.html` 是一个入口页，用于跳转到各版本。
+根目录 `index.html` 是入口页，用于跳转到各版本。
 
 ## 部署（GitHub Pages）
 

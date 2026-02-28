@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>贪吃蛇 · 自动驾驶</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100dvh;
+      padding: 12px;
+      touch-action: none;
+      overflow: hidden;
+    }
+
+    h1 {
+      font-size: clamp(1.1rem, 4vw, 1.6rem);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+      color: #58a6ff;
+    }
+
+    #info-bar {
+      display: flex;
+      gap: 24px;
+      font-size: clamp(0.75rem, 2.5vw, 0.95rem);
+      margin-bottom: 10px;
+      color: #8b949e;
+    }
+
+    #info-bar span { color: #e6edf3; font-weight: 600; }
+
+    #canvas-wrap {
+      position: relative;
+      border: 2px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 0 32px rgba(88,166,255,0.12);
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13,17,23,0.82);
+      backdrop-filter: blur(4px);
+      gap: 12px;
+      transition: opacity 0.3s;
+    }
+
+    #overlay.hidden { opacity: 0; pointer-events: none; }
+
+    #overlay h2 {
+      font-size: clamp(1.2rem, 5vw, 2rem);
+      color: #58a6ff;
+    }
+
+    #overlay p {
+      font-size: clamp(0.75rem, 2.5vw, 1rem);
+      color: #8b949e;
+      text-align: center;
+      padding: 0 16px;
+    }
+
+    #start-btn {
+      margin-top: 8px;
+      padding: 10px 28px;
+      background: #238636;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: clamp(0.85rem, 2.5vw, 1rem);
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #start-btn:hover { background: #2ea043; }
+
+    #algo-badge {
+      position: absolute;
+      bottom: 8px;
+      right: 10px;
+      font-size: 0.65rem;
+      color: #484f58;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🐍 贪吃蛇 · 自动驾驶</h1>
+  <div id="info-bar">
+    得分：<span id="score">0</span>
+    &nbsp;|&nbsp;
+    最高分：<span id="best">0</span>
+    &nbsp;|&nbsp;
+    速度：<span id="speed">1</span>x
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="c"></canvas>
+    <div id="overlay">
+      <h2>自动驾驶模式</h2>
+      <p>AI 将自动控制蛇，使用 BFS + 安全尾追策略<br>持续寻找食物并避免碰撞</p>
+      <button id="start-btn">开始游戏</button>
+    </div>
+    <div id="algo-badge">BFS + Tail-Chase Safety</div>
+  </div>
+
+  <script>
+    /*
+     * 自动驾驶策略说明：
+     *
+     * 1. 主策略（BFS 最短路径）：
+     *    每一帧用 BFS 从蛇头出发，找到通往食物的最短路径。
+     *    如果找到路径，先"虚拟走完"该路径，检查走完后蛇尾是否仍可达（安全性验证）。
+     *    若安全，则沿该路径走第一步。
+     *
+     * 2. 安全回退（尾追策略）：
+     *    若主策略路径不安全，或根本找不到食物路径，则改为追逐蛇尾——
+     *    BFS 找到蛇尾的路径，沿尾部移动可以最大化存活空间（经典 Hamilton 思路的简化版）。
+     *
+     * 3. 最终回退（贪心最大空间）：
+     *    若连尾追也不可行，则选择使当前可达格子数最多的方向（Flood Fill 评分），
+     *    尽量延迟死亡。
+     *
+     * 这种三层策略在大多数情况下能高效吃到食物，同时保持较低的死亡率。
+     */
+
+    const COLS = 20, ROWS = 20;
+    const CELL = (() => {
+      const maxW = Math.min(window.innerWidth - 28, window.innerHeight - 120, 520);
+      return Math.floor(maxW / COLS);
+    })();
+    const W = COLS * CELL, H = ROWS * CELL;
+
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    canvas.width = W;
+    canvas.height = H;
+
+    const overlay = document.getElementById('overlay');
+    const scoreEl = document.getElementById('score');
+    const bestEl = document.getElementById('best');
+    const speedEl = document.getElementById('speed');
+    document.getElementById('start-btn').addEventListener('click', startGame);
+
+    // Prevent touch scroll during game
+    document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+    document.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+
+    const DIR = {
+      UP:    { x: 0,  y: -1 },
+      DOWN:  { x: 0,  y:  1 },
+      LEFT:  { x: -1, y:  0 },
+      RIGHT: { x: 1,  y:  0 },
+    };
+    const DIRS = [DIR.UP, DIR.DOWN, DIR.LEFT, DIR.RIGHT];
+
+    let snake, food, score, best = 0, running = false, animId, lastTime = 0;
+    let stepInterval = 100; // ms per step
+
+    function idx(x, y) { return y * COLS + x; }
+    function inBounds(x, y) { return x >= 0 && x < COLS && y >= 0 && y < ROWS; }
+
+    function initSnake() {
+      const cx = Math.floor(COLS / 2), cy = Math.floor(ROWS / 2);
+      return [{ x: cx, y: cy }, { x: cx - 1, y: cy }, { x: cx - 2, y: cy }];
+    }
+
+    function placeFood(snake) {
+      const occupied = new Set(snake.map(s => idx(s.x, s.y)));
+      const free = [];
+      for (let y = 0; y < ROWS; y++)
+        for (let x = 0; x < COLS; x++)
+          if (!occupied.has(idx(x, y))) free.push({ x, y });
+      if (!free.length) return null;
+      return free[Math.floor(Math.random() * free.length)];
+    }
+
+    // BFS: returns array of directions from start to target, or null
+    function bfs(snake, target, ignoreLastTail = false) {
+      const head = snake[0];
+      const occupied = new Set(snake.map(s => idx(s.x, s.y)));
+      // When ignoreLastTail is true, the tail cell is walkable (snake moves forward)
+      if (ignoreLastTail) occupied.delete(idx(snake[snake.length - 1].x, snake[snake.length - 1].y));
+
+      const queue = [{ x: head.x, y: head.y, path: [] }];
+      const visited = new Set([idx(head.x, head.y)]);
+
+      while (queue.length) {
+        const cur = queue.shift();
+        for (const d of DIRS) {
+          const nx = cur.x + d.x, ny = cur.y + d.y;
+          if (!inBounds(nx, ny)) continue;
+          const ni = idx(nx, ny);
+          if (occupied.has(ni) || visited.has(ni)) continue;
+          const newPath = [...cur.path, d];
+          if (nx === target.x && ny === target.y) return newPath;
+          visited.add(ni);
+          queue.push({ x: nx, y: ny, path: newPath });
+        }
+      }
+      return null;
+    }
+
+    // Simulate snake moving along a path, return new snake array
+    function simulateMove(snake, path) {
+      let s = snake.map(c => ({ ...c }));
+      for (const d of path) {
+        const head = { x: s[0].x + d.x, y: s[0].y + d.y };
+        s = [head, ...s.slice(0, -1)];
+      }
+      return s;
+    }
+
+    // Flood fill: count reachable cells from head, given occupied set
+    function floodFill(head, occupied) {
+      const visited = new Set([idx(head.x, head.y)]);
+      const queue = [head];
+      while (queue.length) {
+        const cur = queue.shift();
+        for (const d of DIRS) {
+          const nx = cur.x + d.x, ny = cur.y + d.y;
+          if (!inBounds(nx, ny)) continue;
+          const ni = idx(nx, ny);
+          if (occupied.has(ni) || visited.has(ni)) continue;
+          visited.add(ni);
+          queue.push({ x: nx, y: ny });
+        }
+      }
+      return visited.size;
+    }
+
+    // Core AI: decide next direction
+    function aiNextDir(snake, food) {
+      // 1. BFS path to food
+      const pathToFood = bfs(snake, food, true);
+
+      if (pathToFood) {
+        // Safety check: simulate moving to food, then check if tail is still reachable
+        const simSnake = simulateMove(snake, pathToFood);
+        // After eating, tail extends — simulate eating (don't remove tail)
+        const eatSnake = [{ x: snake[0].x + pathToFood[0].x, y: snake[0].y + pathToFood[0].y }, ...snake];
+        const simEat = simulateMove(eatSnake, pathToFood.slice(1));
+
+        const tailPath = bfs(simSnake, simSnake[simSnake.length - 1], true);
+        if (tailPath !== null || simSnake.length >= COLS * ROWS - 1) {
+          return pathToFood[0];
+        }
+      }
+
+      // 2. Tail-chase fallback: follow own tail to stay alive
+      const tail = snake[snake.length - 1];
+      const pathToTail = bfs(snake, tail, true);
+      if (pathToTail && pathToTail.length > 0) {
+        return pathToTail[0];
+      }
+
+      // 3. Greedy flood fill: pick direction with most open space
+      const head = snake[0];
+      const occupied = new Set(snake.map(s => idx(s.x, s.y)));
+      let bestDir = null, bestCount = -1;
+      for (const d of DIRS) {
+        const nx = head.x + d.x, ny = head.y + d.y;
+        if (!inBounds(nx, ny) || occupied.has(idx(nx, ny))) continue;
+        const newOccupied = new Set(occupied);
+        newOccupied.delete(idx(snake[snake.length - 1].x, snake[snake.length - 1].y));
+        const count = floodFill({ x: nx, y: ny }, newOccupied);
+        if (count > bestCount) { bestCount = count; bestDir = d; }
+      }
+      return bestDir;
+    }
+
+    function step() {
+      const dir = aiNextDir(snake, food);
+      if (!dir) { endGame(); return; }
+
+      const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+      if (!inBounds(head.x, head.y)) { endGame(); return; }
+      const occupied = new Set(snake.map(s => idx(s.x, s.y)));
+      if (occupied.has(idx(head.x, head.y))) { endGame(); return; }
+
+      const ate = head.x === food.x && head.y === food.y;
+      snake = ate ? [head, ...snake] : [head, ...snake.slice(0, -1)];
+
+      if (ate) {
+        score++;
+        scoreEl.textContent = score;
+        if (score > best) { best = score; bestEl.textContent = best; }
+        // Increase speed every 5 points
+        const lvl = Math.floor(score / 5) + 1;
+        stepInterval = Math.max(50, 100 - (lvl - 1) * 8);
+        speedEl.textContent = lvl;
+        food = placeFood(snake);
+        if (!food) { endGame(true); return; } // won!
+      }
+
+      draw();
+    }
+
+    function gameLoop(ts) {
+      if (!running) return;
+      if (ts - lastTime >= stepInterval) {
+        lastTime = ts;
+        step();
+      }
+      animId = requestAnimationFrame(gameLoop);
+    }
+
+    function startGame() {
+      snake = initSnake();
+      food = placeFood(snake);
+      score = 0;
+      scoreEl.textContent = 0;
+      speedEl.textContent = 1;
+      stepInterval = 100;
+      running = true;
+      overlay.classList.add('hidden');
+      lastTime = 0;
+      cancelAnimationFrame(animId);
+      animId = requestAnimationFrame(gameLoop);
+    }
+
+    function endGame(won = false) {
+      running = false;
+      cancelAnimationFrame(animId);
+      draw();
+      overlay.querySelector('h2').textContent = won ? '🎉 完美通关！' : '游戏结束';
+      overlay.querySelector('p').textContent = `得分：${score}　最高分：${best}`;
+      overlay.querySelector('button').textContent = '再来一局';
+      overlay.classList.remove('hidden');
+      // Auto-restart after 2s
+      setTimeout(() => { if (!running) startGame(); }, 2000);
+    }
+
+    // ---- Rendering ----
+    const COLORS = {
+      bg:       '#0d1117',
+      grid:     '#161b22',
+      food:     '#f85149',
+      head:     '#58a6ff',
+      body:     '#1f6feb',
+      tail:     '#388bfd',
+    };
+
+    function draw() {
+      ctx.fillStyle = COLORS.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid lines
+      ctx.strokeStyle = COLORS.grid;
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x <= COLS; x++) {
+        ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, H); ctx.stroke();
+      }
+      for (let y = 0; y <= ROWS; y++) {
+        ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(W, y * CELL); ctx.stroke();
+      }
+
+      // Food
+      if (food) {
+        const fx = food.x * CELL + CELL / 2, fy = food.y * CELL + CELL / 2, fr = CELL * 0.38;
+        ctx.fillStyle = COLORS.food;
+        ctx.beginPath();
+        ctx.arc(fx, fy, fr, 0, Math.PI * 2);
+        ctx.fill();
+        // Glow
+        ctx.shadowColor = COLORS.food;
+        ctx.shadowBlur = 10;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // Snake body
+      for (let i = snake.length - 1; i >= 0; i--) {
+        const s = snake[i];
+        const t = i / snake.length;
+        ctx.fillStyle = i === 0 ? COLORS.head : lerpColor(COLORS.tail, COLORS.body, t);
+        const pad = i === 0 ? 1 : 2;
+        roundRect(ctx, s.x * CELL + pad, s.y * CELL + pad, CELL - pad * 2, CELL - pad * 2, i === 0 ? 4 : 3);
+        ctx.fill();
+      }
+
+      // Eyes on head
+      const h = snake[0];
+      ctx.fillStyle = '#0d1117';
+      const ex = h.x * CELL + CELL * 0.3, ey = h.y * CELL + CELL * 0.3;
+      ctx.beginPath(); ctx.arc(ex, ey, CELL * 0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(h.x * CELL + CELL * 0.7, ey, CELL * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    }
+
+    function lerpColor(a, b, t) {
+      const ah = parseInt(a.slice(1), 16), bh = parseInt(b.slice(1), 16);
+      const ar = (ah >> 16) & 0xff, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+      const br = (bh >> 16) & 0xff, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+      const r = Math.round(ar + (br - ar) * t);
+      const g = Math.round(ag + (bg - ag) * t);
+      const bv = Math.round(ab + (bb - ab) * t);
+      return `#${((r << 16) | (g << 8) | bv).toString(16).padStart(6, '0')}`;
+    }
+
+    // Initial draw
+    snake = initSnake();
+    food = placeFood(snake);
+    draw();
+  </script>
+</body>
+</html>

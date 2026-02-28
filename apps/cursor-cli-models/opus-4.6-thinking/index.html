@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>贪吃蛇 · 自动驾驶</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  background: #0a0a1a;
+  color: #e0e0e0;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 8px;
+  gap: 8px;
+}
+
+#hud {
+  display: flex;
+  gap: 24px;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: #8af;
+}
+
+#hud span { color: #fff; }
+
+canvas {
+  border: 2px solid #2a2a4a;
+  border-radius: 4px;
+  background: #0d0d22;
+  image-rendering: pixelated;
+  max-width: 100%;
+  max-height: calc(100vh - 80px);
+  aspect-ratio: 1;
+}
+
+#controls {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+
+button {
+  background: #1a1a3a;
+  color: #8af;
+  border: 1px solid #3a3a6a;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button:hover, button:active { background: #2a2a5a; }
+button.active { background: #3a3a7a; border-color: #8af; }
+
+#status {
+  font-size: 12px;
+  color: #6a6a9a;
+  text-align: center;
+  min-height: 1.5em;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud">
+    分数 <span id="score">0</span>
+    最高 <span id="high">0</span>
+    长度 <span id="length">3</span>
+  </div>
+  <canvas id="game"></canvas>
+  <div id="controls">
+    <button id="btnSpeed" class="active">⚡ 快速</button>
+    <button id="btnPause">⏸ 暂停</button>
+    <button id="btnRestart">🔄 重来</button>
+  </div>
+  <div id="status">自动驾驶中 — BFS寻路 + 安全回退策略</div>
+</div>
+
+<script>
+/*
+ * ==============================
+ *  自动驾驶贪吃蛇 — AI 策略说明
+ * ==============================
+ *
+ *  混合策略 (BFS + 安全验证 + 追尾回退):
+ *
+ *  1. 主策略 — BFS 寻食:
+ *     用 BFS 找到蛇头到食物的最短路径。
+ *
+ *  2. 安全验证:
+ *     模拟沿 BFS 路径吃到食物后，检查蛇头能否通过 BFS 到达自己的尾巴。
+ *     如果不能到达尾巴 → 说明这条路可能把自己困死，放弃此路径。
+ *
+ *  3. 回退策略 — 追尾:
+ *     当没有安全的食物路径时，BFS 找到蛇尾方向并跟随，
+ *     这样能持续"解开"自己，等待安全的进食时机。
+ *
+ *  4. 最终回退 — 安全邻居:
+ *     如果连尾巴都到不了，选择一个不会立即死亡的相邻格子，
+ *     优先选择空间最大（flood fill 计数）的方向。
+ *
+ *  这个策略在中小棋盘上能可靠地存活很长时间并持续进食。
+ */
+
+(() => {
+  const GRID = 20;
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  const scoreEl = document.getElementById('score');
+  const highEl = document.getElementById('high');
+  const lengthEl = document.getElementById('length');
+  const statusEl = document.getElementById('status');
+  const btnSpeed = document.getElementById('btnSpeed');
+  const btnPause = document.getElementById('btnPause');
+  const btnRestart = document.getElementById('btnRestart');
+
+  const DIR = { UP: 0, RIGHT: 1, DOWN: 2, LEFT: 3 };
+  const DX = [0, 1, 0, -1];
+  const DY = [-1, 0, 1, 0];
+
+  let cell, snake, food, dir, score, highScore, paused, fast, gameOver, tickTimer;
+
+  highScore = parseInt(localStorage.getItem('snakeHigh') || '0', 10);
+  highEl.textContent = highScore;
+
+  function resize() {
+    const maxW = window.innerWidth - 16;
+    const maxH = window.innerHeight - 100;
+    const side = Math.min(maxW, maxH);
+    canvas.width = canvas.height = side;
+    cell = side / GRID;
+  }
+
+  function init() {
+    clearTimeout(tickTimer);
+    const mid = Math.floor(GRID / 2);
+    snake = [
+      { x: mid, y: mid },
+      { x: mid - 1, y: mid },
+      { x: mid - 2, y: mid }
+    ];
+    dir = DIR.RIGHT;
+    score = 0;
+    paused = false;
+    gameOver = false;
+    scoreEl.textContent = 0;
+    lengthEl.textContent = snake.length;
+    btnPause.textContent = '⏸ 暂停';
+    statusEl.textContent = '自动驾驶中 — BFS寻路 + 安全回退策略';
+    placeFood();
+    draw();
+    scheduleTick();
+  }
+
+  function placeFood() {
+    const occupied = new Set(snake.map(p => p.x + p.y * GRID));
+    const free = [];
+    for (let y = 0; y < GRID; y++)
+      for (let x = 0; x < GRID; x++)
+        if (!occupied.has(x + y * GRID)) free.push({ x, y });
+    if (free.length === 0) {
+      gameOver = true;
+      statusEl.textContent = '🎉 完美通关！棋盘已满！';
+      return;
+    }
+    food = free[Math.floor(Math.random() * free.length)];
+  }
+
+  /* ========== AI 核心 ========== */
+
+  function key(x, y) { return x + y * GRID; }
+
+  function inBounds(x, y) { return x >= 0 && x < GRID && y >= 0 && y < GRID; }
+
+  function buildOccupied(snakeBody, excludeTail) {
+    const set = new Set();
+    const end = excludeTail ? snakeBody.length - 1 : snakeBody.length;
+    for (let i = 0; i < end; i++) set.add(key(snakeBody[i].x, snakeBody[i].y));
+    return set;
+  }
+
+  function bfs(startX, startY, goalX, goalY, occupied) {
+    if (startX === goalX && startY === goalY) return [];
+    const visited = new Set();
+    visited.add(key(startX, startY));
+    const queue = [{ x: startX, y: startY, path: [] }];
+    let head = 0;
+    while (head < queue.length) {
+      const cur = queue[head++];
+      for (let d = 0; d < 4; d++) {
+        const nx = cur.x + DX[d];
+        const ny = cur.y + DY[d];
+        if (!inBounds(nx, ny)) continue;
+        const k = key(nx, ny);
+        if (visited.has(k) || occupied.has(k)) continue;
+        const newPath = [...cur.path, d];
+        if (nx === goalX && ny === goalY) return newPath;
+        visited.add(k);
+        queue.push({ x: nx, y: ny, path: newPath });
+      }
+    }
+    return null;
+  }
+
+  function simulateSnake(snakeBody, path, ate) {
+    let sim = snakeBody.map(p => ({ ...p }));
+    for (const d of path) {
+      const head = sim[0];
+      sim.unshift({ x: head.x + DX[d], y: head.y + DY[d] });
+      if (!ate) sim.pop();
+      ate = false;
+    }
+    return sim;
+  }
+
+  function floodFill(sx, sy, occupied) {
+    const visited = new Set();
+    visited.add(key(sx, sy));
+    const q = [{ x: sx, y: sy }];
+    let h = 0;
+    while (h < q.length) {
+      const c = q[h++];
+      for (let d = 0; d < 4; d++) {
+        const nx = c.x + DX[d];
+        const ny = c.y + DY[d];
+        if (!inBounds(nx, ny)) continue;
+        const k = key(nx, ny);
+        if (visited.has(k) || occupied.has(k)) continue;
+        visited.add(k);
+        q.push({ x: nx, y: ny });
+      }
+    }
+    return visited.size;
+  }
+
+  function chooseDirection() {
+    const head = snake[0];
+    const tail = snake[snake.length - 1];
+
+    // Try BFS to food
+    const occNoTail = buildOccupied(snake, true);
+    const pathToFood = bfs(head.x, head.y, food.x, food.y, occNoTail);
+
+    if (pathToFood && pathToFood.length > 0) {
+      // Safety: simulate eating, then check if we can reach our tail
+      const simSnake = simulateSnake(snake, pathToFood, true);
+      const simOcc = buildOccupied(simSnake, true);
+      const simHead = simSnake[0];
+      const simTail = simSnake[simSnake.length - 1];
+      const canReachTail = bfs(simHead.x, simHead.y, simTail.x, simTail.y, simOcc);
+      if (canReachTail !== null) {
+        return pathToFood[0];
+      }
+    }
+
+    // Fallback: chase tail
+    const pathToTail = bfs(head.x, head.y, tail.x, tail.y, occNoTail);
+    if (pathToTail && pathToTail.length > 1) {
+      return pathToTail[0];
+    }
+
+    // Last resort: pick neighbor with most open space
+    let bestDir = -1;
+    let bestSpace = -1;
+    const occ = buildOccupied(snake, false);
+    for (let d = 0; d < 4; d++) {
+      const nx = head.x + DX[d];
+      const ny = head.y + DY[d];
+      if (!inBounds(nx, ny) || occ.has(key(nx, ny))) continue;
+      const space = floodFill(nx, ny, occ);
+      if (space > bestSpace) {
+        bestSpace = space;
+        bestDir = d;
+      }
+    }
+    return bestDir;
+  }
+
+  /* ========== 游戏循环 ========== */
+
+  function tick() {
+    if (paused || gameOver) return;
+
+    const d = chooseDirection();
+    if (d === -1) {
+      gameOver = true;
+      statusEl.textContent = `💀 Game Over — 得分 ${score}`;
+      setTimeout(init, 2000);
+      return;
+    }
+    dir = d;
+
+    const head = snake[0];
+    const nx = head.x + DX[dir];
+    const ny = head.y + DY[dir];
+
+    if (!inBounds(nx, ny) || buildOccupied(snake, true).has(key(nx, ny))) {
+      gameOver = true;
+      statusEl.textContent = `💀 Game Over — 得分 ${score}`;
+      setTimeout(init, 2000);
+      return;
+    }
+
+    snake.unshift({ x: nx, y: ny });
+
+    if (nx === food.x && ny === food.y) {
+      score += 10;
+      scoreEl.textContent = score;
+      if (score > highScore) {
+        highScore = score;
+        highEl.textContent = highScore;
+        localStorage.setItem('snakeHigh', String(highScore));
+      }
+      lengthEl.textContent = snake.length;
+      placeFood();
+    } else {
+      snake.pop();
+    }
+
+    draw();
+    scheduleTick();
+  }
+
+  function scheduleTick() {
+    clearTimeout(tickTimer);
+    tickTimer = setTimeout(tick, fast ? 50 : 120);
+  }
+
+  /* ========== 渲染 ========== */
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Grid lines (subtle)
+    ctx.strokeStyle = '#151530';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= GRID; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * cell, 0);
+      ctx.lineTo(i * cell, canvas.height);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, i * cell);
+      ctx.lineTo(canvas.width, i * cell);
+      ctx.stroke();
+    }
+
+    // Food
+    const glow = ctx.createRadialGradient(
+      (food.x + 0.5) * cell, (food.y + 0.5) * cell, cell * 0.1,
+      (food.x + 0.5) * cell, (food.y + 0.5) * cell, cell * 0.6
+    );
+    glow.addColorStop(0, '#ff4466');
+    glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow;
+    ctx.fillRect(food.x * cell - cell * 0.1, food.y * cell - cell * 0.1, cell * 1.2, cell * 1.2);
+    ctx.fillStyle = '#ff4466';
+    roundRect(food.x * cell + 2, food.y * cell + 2, cell - 4, cell - 4, 4);
+
+    // Snake body
+    for (let i = snake.length - 1; i >= 0; i--) {
+      const s = snake[i];
+      const t = i / snake.length;
+      if (i === 0) {
+        ctx.fillStyle = '#6ff';
+      } else {
+        const r = Math.round(40 + t * 20);
+        const g = Math.round(200 - t * 80);
+        const b = Math.round(120 + t * 80);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+      }
+      const pad = i === 0 ? 1 : 2;
+      roundRect(s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, 3);
+    }
+
+    // Eyes on head
+    const h = snake[0];
+    const eyeR = cell * 0.1;
+    const cx = (h.x + 0.5) * cell;
+    const cy = (h.y + 0.5) * cell;
+    const ex = DX[dir] * cell * 0.15;
+    const ey = DY[dir] * cell * 0.15;
+    const perp = dir % 2 === 0 ? cell * 0.18 : 0;
+    const perpY = dir % 2 === 1 ? cell * 0.18 : 0;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(cx + ex - perp, cy + ey - perpY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + ex + perp, cy + ey + perpY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /* ========== 交互 ========== */
+
+  fast = true;
+
+  btnSpeed.addEventListener('click', () => {
+    fast = !fast;
+    btnSpeed.textContent = fast ? '⚡ 快速' : '🐢 慢速';
+    btnSpeed.classList.toggle('active', fast);
+  });
+
+  btnPause.addEventListener('click', () => {
+    if (gameOver) return;
+    paused = !paused;
+    btnPause.textContent = paused ? '▶ 继续' : '⏸ 暂停';
+    if (!paused) scheduleTick();
+  });
+
+  btnRestart.addEventListener('click', init);
+
+  // Prevent all scrolling / pull-to-refresh
+  document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  document.addEventListener('touchstart', e => {
+    if (e.target === canvas) e.preventDefault();
+  }, { passive: false });
+
+  // Allow manual direction override via swipe or arrow keys
+  let touchStart = null;
+  canvas.addEventListener('touchstart', e => {
+    touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  });
+  canvas.addEventListener('touchend', e => {
+    if (!touchStart) return;
+    const dx = e.changedTouches[0].clientX - touchStart.x;
+    const dy = e.changedTouches[0].clientY - touchStart.y;
+    if (Math.abs(dx) < 20 && Math.abs(dy) < 20) {
+      // Tap: toggle pause
+      if (!gameOver) {
+        paused = !paused;
+        btnPause.textContent = paused ? '▶ 继续' : '⏸ 暂停';
+        if (!paused) scheduleTick();
+      }
+    }
+    touchStart = null;
+  });
+
+  document.addEventListener('keydown', e => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+      e.preventDefault();
+    }
+    if (e.key === ' ') {
+      paused = !paused;
+      btnPause.textContent = paused ? '▶ 继续' : '⏸ 暂停';
+      if (!paused) scheduleTick();
+    }
+  });
+
+  window.addEventListener('resize', () => { resize(); draw(); });
+
+  resize();
+  init();
+})();
+</script>
+</body>
+</html>

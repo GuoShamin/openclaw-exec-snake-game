@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>自动驾驶贪吃蛇</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 10px;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: clamp(20px, 5vw, 28px);
+        }
+
+        .info {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 15px;
+            font-size: clamp(14px, 3vw, 16px);
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .info-label {
+            color: #666;
+            font-size: 0.85em;
+        }
+
+        .info-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        #gameCanvas {
+            display: block;
+            margin: 0 auto;
+            border: 3px solid #667eea;
+            border-radius: 10px;
+            background: #f5f5f5;
+            max-width: 100%;
+            height: auto;
+            touch-action: none;
+        }
+
+        .strategy-info {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f0f4ff;
+            border-radius: 10px;
+            font-size: clamp(12px, 2.5vw, 14px);
+            line-height: 1.6;
+        }
+
+        .strategy-info h3 {
+            color: #667eea;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+
+        .strategy-info p {
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 15px;
+                border-radius: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐍 自动驾驶贪吃蛇</h1>
+        <div class="info">
+            <div class="info-item">
+                <span class="info-label">分数</span>
+                <span class="info-value" id="score">0</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">最高分</span>
+                <span class="info-value" id="highScore">0</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">状态</span>
+                <span class="info-value" id="status">运行中</span>
+            </div>
+        </div>
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+        <div class="strategy-info">
+            <h3>🤖 AI 策略说明</h3>
+            <p><strong>算法：</strong>BFS 寻路 + 安全性检查</p>
+            <p><strong>特点：</strong>寻找到食物的最短路径，同时评估吃掉食物后是否还有足够生存空间，避免把自己困死。</p>
+            <p><strong>备选：</strong>若无安全路径，则寻找远离食物的最长路径保持游走。</p>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const highScoreElement = document.getElementById('highScore');
+        const statusElement = document.getElementById('status');
+
+        const GRID_SIZE = 20;
+        const TILE_COUNT = 20;
+        const GAME_SPEED = 120;
+
+        canvas.width = GRID_SIZE * TILE_COUNT;
+        canvas.height = GRID_SIZE * TILE_COUNT;
+
+        let snake = [{ x: 10, y: 10 }];
+        let food = { x: 15, y: 15 };
+        let direction = { x: 1, y: 0 };
+        let score = 0;
+        let highScore = localStorage.getItem('snakeHighScore') || 0;
+        let gameRunning = true;
+
+        highScoreElement.textContent = highScore;
+
+        function drawRect(x, y, color, borderColor = null) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+            
+            if (borderColor) {
+                ctx.strokeStyle = borderColor;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+            }
+        }
+
+        function drawCircle(x, y, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.arc(
+                x * GRID_SIZE + GRID_SIZE / 2,
+                y * GRID_SIZE + GRID_SIZE / 2,
+                GRID_SIZE / 2 - 2,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
+        }
+
+        function draw() {
+            ctx.fillStyle = '#f5f5f5';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            snake.forEach((segment, index) => {
+                if (index === 0) {
+                    drawRect(segment.x, segment.y, '#667eea', '#4c51bf');
+                } else {
+                    drawRect(segment.x, segment.y, '#a0aec0', '#718096');
+                }
+            });
+
+            drawCircle(food.x, food.y, '#f56565');
+        }
+
+        function spawnFood() {
+            let validPositions = [];
+            for (let x = 0; x < TILE_COUNT; x++) {
+                for (let y = 0; y < TILE_COUNT; y++) {
+                    let occupied = snake.some(s => s.x === x && s.y === y);
+                    if (!occupied) {
+                        validPositions.push({ x, y });
+                    }
+                }
+            }
+            
+            if (validPositions.length > 0) {
+                food = validPositions[Math.floor(Math.random() * validPositions.length)];
+            }
+        }
+
+        function bfs(start, goal, snakeBody) {
+            const queue = [[start]];
+            const visited = new Set();
+            visited.add(`${start.x},${start.y}`);
+
+            const directions = [
+                { x: 1, y: 0 },
+                { x: -1, y: 0 },
+                { x: 0, y: 1 },
+                { x: 0, y: -1 }
+            ];
+
+            while (queue.length > 0) {
+                const path = queue.shift();
+                const current = path[path.length - 1];
+
+                if (current.x === goal.x && current.y === goal.y) {
+                    return path;
+                }
+
+                for (const dir of directions) {
+                    const next = {
+                        x: current.x + dir.x,
+                        y: current.y + dir.y
+                    };
+
+                    const key = `${next.x},${next.y}`;
+                    
+                    if (next.x < 0 || next.x >= TILE_COUNT || 
+                        next.y < 0 || next.y >= TILE_COUNT) {
+                        continue;
+                    }
+
+                    const hitSnake = snakeBody.some((s, i) => {
+                        if (i === snakeBody.length - 1 && path.length > 1) {
+                            return false;
+                        }
+                        return s.x === next.x && s.y === next.y;
+                    });
+
+                    if (hitSnake || visited.has(key)) {
+                        continue;
+                    }
+
+                    visited.add(key);
+                    queue.push([...path, next]);
+                }
+            }
+
+            return null;
+        }
+
+        function canSurviveAfterEating(snakeAfterEating) {
+            const head = snakeAfterEating[0];
+            const tail = snakeAfterEating[snakeAfterEating.length - 1];
+            
+            const pathToTail = bfs(head, tail, snakeAfterEating.slice(0, -1));
+            return pathToTail !== null;
+        }
+
+        function findSafePath() {
+            const head = snake[0];
+            const pathToFood = bfs(head, food, snake);
+
+            if (pathToFood && pathToFood.length > 1) {
+                const nextStep = pathToFood[1];
+                const simulatedSnake = [
+                    nextStep,
+                    ...snake.slice(0, -1)
+                ];
+
+                if (pathToFood.length === 2) {
+                    simulatedSnake.push(nextStep);
+                }
+
+                if (canSurviveAfterEating(simulatedSnake)) {
+                    return {
+                        x: nextStep.x - head.x,
+                        y: nextStep.y - head.y
+                    };
+                }
+            }
+
+            const directions = [
+                { x: 1, y: 0 },
+                { x: -1, y: 0 },
+                { x: 0, y: 1 },
+                { x: 0, y: -1 }
+            ];
+
+            let bestDir = null;
+            let maxDistance = -1;
+
+            for (const dir of directions) {
+                const next = {
+                    x: head.x + dir.x,
+                    y: head.y + dir.y
+                };
+
+                if (next.x < 0 || next.x >= TILE_COUNT || 
+                    next.y < 0 || next.y >= TILE_COUNT) {
+                    continue;
+                }
+
+                const hitSnake = snake.slice(0, -1).some(s => 
+                    s.x === next.x && s.y === next.y
+                );
+
+                if (hitSnake) {
+                    continue;
+                }
+
+                const distance = Math.abs(next.x - food.x) + Math.abs(next.y - food.y);
+                if (distance > maxDistance) {
+                    maxDistance = distance;
+                    bestDir = dir;
+                }
+            }
+
+            return bestDir;
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            const aiDirection = findSafePath();
+            
+            if (!aiDirection) {
+                gameOver();
+                return;
+            }
+
+            direction = aiDirection;
+
+            const head = {
+                x: snake[0].x + direction.x,
+                y: snake[0].y + direction.y
+            };
+
+            if (head.x < 0 || head.x >= TILE_COUNT || 
+                head.y < 0 || head.y >= TILE_COUNT) {
+                gameOver();
+                return;
+            }
+
+            const hitSelf = snake.some(segment => 
+                segment.x === head.x && segment.y === head.y
+            );
+
+            if (hitSelf) {
+                gameOver();
+                return;
+            }
+
+            snake.unshift(head);
+
+            if (head.x === food.x && head.y === food.y) {
+                score++;
+                scoreElement.textContent = score;
+                
+                if (score > highScore) {
+                    highScore = score;
+                    highScoreElement.textContent = highScore;
+                    localStorage.setItem('snakeHighScore', highScore);
+                }
+                
+                spawnFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            statusElement.textContent = '游戏结束';
+            statusElement.style.color = '#f56565';
+            
+            setTimeout(() => {
+                resetGame();
+            }, 2000);
+        }
+
+        function resetGame() {
+            snake = [{ x: 10, y: 10 }];
+            food = { x: 15, y: 15 };
+            direction = { x: 1, y: 0 };
+            score = 0;
+            gameRunning = true;
+            scoreElement.textContent = score;
+            statusElement.textContent = '运行中';
+            statusElement.style.color = '#667eea';
+            spawnFood();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+        }
+
+        document.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        }, { passive: false });
+
+        spawnFood();
+        setInterval(gameLoop, GAME_SPEED);
+    </script>
+</body>
+</html>

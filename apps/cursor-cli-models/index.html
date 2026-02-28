@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Cursor CLI · 多模型贪吃蛇自动驾驶对比</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#0b1020; --fg:#e8eaf2; --muted:#a8b0c2; --card:#121a33; --link:#6aa6ff; --chip: rgba(106,166,255,.14); --chipb: rgba(106,166,255,.25); }
+    @media (prefers-color-scheme: light){ :root{ --bg:#f6f7fb; --fg:#111426; --muted:#4a5568; --card:#ffffff; --link:#1d4ed8; --chip: rgba(29,78,216,.10); --chipb: rgba(29,78,216,.20);} }
+    body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:var(--bg); color:var(--fg); }
+    .wrap{ max-width: 1100px; margin: 0 auto; padding: 24px; }
+    h1{ margin: 0 0 6px; font-size: 22px; }
+    p{ margin: 0 0 12px; color: var(--muted); line-height: 1.5; }
+    a{ color: var(--link); text-decoration: none; }
+    a:hover{ text-decoration: underline; }
+    .toprow{ display:flex; align-items:center; justify-content:space-between; gap: 12px; flex-wrap: wrap; }
+    .meta{ display:flex; flex-wrap:wrap; gap: 8px; align-items:center; }
+    .chip{ display:inline-flex; gap: 8px; align-items:center; padding: 6px 10px; border-radius: 999px; background: var(--chip); border: 1px solid var(--chipb); font-size: 12px; color: var(--muted); }
+    .grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px; }
+    .card{ background:var(--card); border:1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 14px; }
+    .model{ font-weight: 700; letter-spacing: .2px; }
+    .btnrow{ display:flex; flex-wrap:wrap; gap: 8px; margin-top: 10px; }
+    .btn{ display:inline-block; padding: 8px 10px; border-radius: 10px; background: var(--chip); border:1px solid var(--chipb); }
+    .small{ font-size: 12px; color: var(--muted); margin-top: 10px; }
+    code{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="toprow">
+      <div>
+        <h1>Cursor CLI · 多模型贪吃蛇自动驾驶对比</h1>
+        <p>同一份 prompt，不同模型生成的实现。每个模型一个独立目录，适配 GitHub Pages，支持移动端（触控防滚动）。</p>
+      </div>
+      <div class="meta">
+        <a class="chip" href="../../">← 返回首页</a>
+        <a class="chip" href="./PROMPT.md">PROMPT.md</a>
+        <span class="chip">prompt sha256: <code id="sha"></code></span>
+      </div>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <p class="small">提示：如果手机全屏显示不理想，试试横屏。部分版本可能包含额外文件（例如测试脚本），不影响运行。</p>
+  </div>
+
+  <script>
+    const PROMPT_SHA = "bb33029e9cf354443c2647a666940e5d9a3f792d1da366f86eb82e3f9bccfb61";
+    const MODELS = [
+      "composer-1.5",
+      "gpt-5.3-codex-xhigh",
+      "gpt-5.2-high",
+      "opus-4.6-thinking",
+      "opus-4.6",
+      "opus-4.5-thinking",
+      "sonnet-4.6",
+      "sonnet-4.6-thinking",
+      "sonnet-4.5-thinking",
+      "gemini-3.1-pro",
+      "gemini-3-pro",
+      "gemini-3-flash"
+    ];
+
+    document.getElementById('sha').textContent = PROMPT_SHA;
+
+    const grid = document.getElementById('grid');
+    for (const m of MODELS) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="model">${m}</div>
+        <div class="btnrow">
+          <a class="btn" href="./${encodeURIComponent(m)}/">打开</a>
+        </div>
+      `;
+      grid.appendChild(card);
+    }
+  </script>
+</body>
+</html>
