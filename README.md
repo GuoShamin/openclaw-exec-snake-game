@@ -8,6 +8,8 @@
 
 - `apps/claude/` → Claude Code
 - `apps/codex/` → Codex
+- `apps/cursor/` → Cursor
+- `apps/cursor-cli/` → Cursor CLI（agent）
 - `apps/gemini/` → Gemini CLI（当前账号验证拦截，暂未生成）
 - `apps/qwen/` → Qwen Code
 
