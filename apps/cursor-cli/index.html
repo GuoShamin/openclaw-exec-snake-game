@@ -3,32 +3,50 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Cursor CLI Snake</title>
-  <meta name="theme-color" content="#071015" />
-  <link rel="stylesheet" href="style.css" />
+  <meta name="theme-color" content="#0b0f1a" />
+  <title>贪吃蛇</title>
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <main class="wrap">
+  <main class="app">
     <header class="top">
-      <h1>Cursor CLI Snake</h1>
-      <div class="meta" id="meta" aria-live="polite"></div>
+      <div class="brand">
+        <div class="title">贪吃蛇</div>
+        <div class="hint">桌面：方向键/WASD，空格暂停；移动端：画布内滑动</div>
+      </div>
+
+      <div class="meta" role="status" aria-live="polite">
+        <div class="pill"><span class="k">Score</span><span id="mScore" class="v">0</span></div>
+        <div class="pill"><span class="k">Speed</span><span id="mSpeed" class="v">0</span></div>
+        <div class="pill"><span class="k">Status</span><span id="mStatus" class="v">Ready</span></div>
+      </div>
+
+      <div class="controls">
+        <button id="btnStart" class="btn primary" type="button">Start</button>
+        <button id="btnPause" class="btn" type="button">Pause</button>
+        <button id="btnRestart" class="btn danger" type="button">Restart</button>
+      </div>
     </header>
 
-    <section class="board" aria-label="Game board">
-      <canvas id="game" width="480" height="480" aria-label="Snake game"></canvas>
+    <section class="stage">
+      <div class="canvasWrap">
+        <canvas id="game" aria-label="贪吃蛇游戏画布"></canvas>
+      </div>
+      <div class="footnote">提示：游戏开始后会自动加速；禁止 180° 反向。</div>
     </section>
-
-    <section class="controls" aria-label="Controls">
-      <button id="btnStart" class="btn primary" type="button">Start</button>
-      <button id="btnPause" class="btn" type="button">Pause</button>
-      <button id="btnRestart" class="btn" type="button">Restart</button>
-    </section>
-
-    <p class="hint">
-      移动端：滑动转向（已阻止滚动）。桌面：方向键 / WASD。空格：暂停/继续。页面加载后会自动开始。
-    </p>
   </main>
 
-  <script src="main.js"></script>
+  <div id="overlay" class="overlay" aria-hidden="true">
+    <div class="overlayCard" role="dialog" aria-modal="true" aria-labelledby="ovTitle">
+      <div class="ovBadge">Game Over</div>
+      <h2 id="ovTitle">游戏结束</h2>
+      <p class="ovText">本局得分：<span id="ovScore">0</span></p>
+      <button id="ovRestart" class="btn primary wide" type="button">Restart</button>
+      <div class="ovSub">点击遮罩也可重开</div>
+    </div>
+  </div>
+
+  <script src="./main.js" defer></script>
 </body>
 </html>
+

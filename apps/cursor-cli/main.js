@@ -1,547 +1,545 @@
 (() => {
-  'use strict';
+  "use strict";
 
-  const canvas = document.getElementById('game');
-  const meta = document.getElementById('meta');
-  const btnStart = document.getElementById('btnStart');
-  const btnPause = document.getElementById('btnPause');
-  const btnRestart = document.getElementById('btnRestart');
+  const GRID = 24;
 
-  if (!canvas || !meta || !btnStart || !btnPause || !btnRestart) return;
-
-  const ctx = canvas.getContext('2d', { alpha: false });
-  if (!ctx) {
-    meta.textContent = '当前浏览器不支持 Canvas。';
-    return;
-  }
-
-  // OpenClaw/Playwright virtual time hook: if present, we disable rAF-based stepping.
-  const isVirtualTime =
-    typeof window.__vt_pending !== 'undefined' || typeof window.__drainVirtualTimePending === 'function';
-
-  const config = {
-    gridSize: 24,
-    baseSpeed: 7, // cells per second
-    speedEveryScore: 4,
-    maxSpeed: 18,
-    autoStartDelayMs: 300,
-    swipeMinPx: 18,
-    maxDirQueue: 2,
+  const STATUS = {
+    READY: "Ready",
+    RUNNING: "Running",
+    PAUSED: "Paused",
+    OVER: "Game Over",
   };
 
-  const palette = {
-    bg: '#071015',
-    board: '#0b141b',
-    grid: 'rgba(255,255,255,.05)',
-    snakeHead: '#22c55e',
-    snakeBody: '#38bdf8',
-    food: '#fb7185',
-    text: 'rgba(255,255,255,.92)',
-    subText: 'rgba(255,255,255,.72)',
-  };
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d", { alpha: false });
 
-  const metrics = {
-    dpr: 1,
-    w: canvas.width,
-    h: canvas.height,
-    cell: 0,
-    ox: 0,
-    oy: 0,
-    board: 0,
-  };
+  const mScore = document.getElementById("mScore");
+  const mSpeed = document.getElementById("mSpeed");
+  const mStatus = document.getElementById("mStatus");
 
-  /** @type {{x:number,y:number}[]} */
+  const btnStart = document.getElementById("btnStart");
+  const btnPause = document.getElementById("btnPause");
+  const btnRestart = document.getElementById("btnRestart");
+
+  const overlay = document.getElementById("overlay");
+  const ovScore = document.getElementById("ovScore");
+  const ovRestart = document.getElementById("ovRestart");
+
+  let status = STATUS.READY;
+
   let snake = [];
-  /** @type {{x:number,y:number}} */
   let dir = { x: 1, y: 0 };
-  /** @type {{x:number,y:number}[]} */
-  let dirQueue = [];
-  /** @type {{x:number,y:number}|null} */
-  let food = null;
+  let nextDir = { x: 1, y: 0 };
+  let food = { x: 0, y: 0 };
 
   let score = 0;
-  let speed = config.baseSpeed;
-  let running = false;
-  let paused = false;
-  let gameOver = false;
-  let accumulatorMs = 0;
+  let foodsEaten = 0;
 
-  const overlay = ensureOverlay();
+  let speed = 0;      // moves per second
+  let stepMs = 0;
 
-  function ensureOverlay() {
-    const host = canvas.closest('.board') || canvas.parentElement || document.body;
-    let el = document.getElementById('overlay');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'overlay';
-      el.className = 'overlay';
-      el.hidden = true;
-      el.innerHTML = `
-        <div class="overlayCard" role="dialog" aria-live="polite">
-          <div class="overlayTitle" data-ol-title>Game Over</div>
-          <div class="overlayDesc" data-ol-desc>点击重开</div>
-          <div class="overlayActions">
-            <button class="btn primary" type="button" data-ol-btn>Restart</button>
-          </div>
-        </div>
-      `.trim();
-      host.appendChild(el);
-    }
-    const btn = el.querySelector('[data-ol-btn]');
-    if (btn) btn.addEventListener('click', () => restart(), { passive: true });
-    el.addEventListener(
-      'click',
-      (e) => {
-        if (e.target === el) restart();
-      },
-      { passive: true },
-    );
-    return el;
+  let lastT = 0;
+  let acc = 0;
+
+  let boardCssSize = 0; // in CSS px
+  let cell = 0;
+  let inset = 0;
+
+  function clamp(v, a, b) {
+    return Math.max(a, Math.min(b, v));
   }
 
-  function setOverlay(visible, title, desc) {
-    if (!overlay) return;
-    const titleEl = overlay.querySelector('[data-ol-title]');
-    const descEl = overlay.querySelector('[data-ol-desc]');
-    if (titleEl && typeof title === 'string') titleEl.textContent = title;
-    if (descEl && typeof desc === 'string') descEl.textContent = desc;
-    overlay.hidden = !visible;
+  function recomputeSpeed() {
+    // 合理曲线：前期加速明显，中后期趋缓，并有上限
+    const base = 7.0;
+    const cap = 18.0;
+    const n = foodsEaten;
+
+    const curved = base + n * 0.45 + Math.sqrt(n) * 0.75;
+    speed = clamp(curved, base, cap);
+    stepMs = 1000 / speed;
   }
 
-  function getStatusText() {
-    if (gameOver) return 'Game Over';
-    if (paused) return 'Paused';
-    if (running) return 'Running';
-    return 'Ready';
+  function setStatus(s) {
+    status = s;
+    mStatus.textContent = s;
+    updateButtons();
   }
 
   function updateMeta() {
-    meta.textContent = `Score: ${score}  ·  Speed: ${speed} /s  ·  ${getStatusText()}`;
-    syncControls();
+    mScore.textContent = String(score);
+    mSpeed.textContent = speed ? speed.toFixed(1) : "0";
+    mStatus.textContent = status;
   }
 
-  function syncControls() {
-    const canStart = !gameOver && (!running || paused);
-    btnStart.disabled = !canStart;
-    btnPause.disabled = !running || gameOver;
-    btnPause.textContent = paused ? 'Resume' : 'Pause';
+  function updateButtons() {
+    if (status === STATUS.RUNNING) {
+      btnStart.disabled = true;
+      btnPause.disabled = false;
+      btnPause.textContent = "Pause";
+    } else if (status === STATUS.PAUSED) {
+      btnStart.disabled = false;
+      btnPause.disabled = false;
+      btnPause.textContent = "Resume";
+    } else if (status === STATUS.OVER) {
+      btnStart.disabled = false;
+      btnPause.disabled = true;
+      btnPause.textContent = "Pause";
+    } else {
+      btnStart.disabled = false;
+      btnPause.disabled = true;
+      btnPause.textContent = "Pause";
+    }
   }
 
-  function computeSpeed(nextScore) {
-    const inc = Math.floor(nextScore / config.speedEveryScore);
-    return Math.min(config.maxSpeed, config.baseSpeed + inc);
+  function showOverlay(show) {
+    if (show) {
+      overlay.classList.add("show");
+      overlay.setAttribute("aria-hidden", "false");
+    } else {
+      overlay.classList.remove("show");
+      overlay.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function keyOf(p) {
+    return `${p.x},${p.y}`;
+  }
+
+  function snakeHas(x, y) {
+    for (let i = 0; i < snake.length; i++) {
+      if (snake[i].x === x && snake[i].y === y) return true;
+    }
+    return false;
+  }
+
+  function placeFood() {
+    const max = GRID * GRID;
+    for (let tries = 0; tries < max; tries++) {
+      const x = (Math.random() * GRID) | 0;
+      const y = (Math.random() * GRID) | 0;
+      if (!snakeHas(x, y)) {
+        food = { x, y };
+        return;
+      }
+    }
+    // 理论上不会发生：占满全图
+    food = { x: 0, y: 0 };
   }
 
   function resetGame() {
-    const mid = Math.floor(config.gridSize / 2);
-    snake = [
-      { x: mid, y: mid },
-      { x: mid - 1, y: mid },
-      { x: mid - 2, y: mid },
-    ];
-    dir = { x: 1, y: 0 };
-    dirQueue = [];
     score = 0;
-    speed = computeSpeed(score);
-    running = false;
-    paused = false;
-    gameOver = false;
-    accumulatorMs = 0;
-    food = placeFood();
-    setOverlay(false);
+    foodsEaten = 0;
+
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+
+    const cx = (GRID / 2) | 0;
+    const cy = (GRID / 2) | 0;
+
+    snake = [
+      { x: cx - 1, y: cy },
+      { x: cx - 2, y: cy },
+      { x: cx - 3, y: cy },
+    ];
+
+    recomputeSpeed();
+    placeFood();
+    setStatus(STATUS.READY);
+    showOverlay(false);
+    updateMeta();
+
+    acc = 0;
+    lastT = performance.now();
+  }
+
+  function startGame() {
+    if (status === STATUS.RUNNING) return;
+    if (status === STATUS.OVER) {
+      resetGame();
+    }
+    setStatus(STATUS.RUNNING);
     updateMeta();
   }
 
-  function start() {
-    if (gameOver) resetGame();
-    if (!running) accumulatorMs = 0;
-    running = true;
-    paused = false;
-    setOverlay(false);
+  function pauseGame() {
+    if (status !== STATUS.RUNNING) return;
+    setStatus(STATUS.PAUSED);
     updateMeta();
   }
 
   function togglePause() {
-    if (!running || gameOver) return;
-    paused = !paused;
-    updateMeta();
+    if (status === STATUS.RUNNING) {
+      pauseGame();
+      return;
+    }
+    if (status === STATUS.PAUSED || status === STATUS.READY) {
+      startGame();
+      return;
+    }
   }
 
-  function restart() {
+  function restartGame() {
     resetGame();
-    start();
+    startGame();
   }
 
-  function endGame(reason) {
-    running = false;
-    paused = false;
-    gameOver = true;
-    const title = reason === 'win' ? 'You Win' : 'Game Over';
-    const desc = reason === 'win' ? `你赢了！Score: ${score}。点击重开。` : `Score: ${score}。点击重开。`;
-    setOverlay(true, title, desc);
+  function gameOver() {
+    setStatus(STATUS.OVER);
+    ovScore.textContent = String(score);
+    showOverlay(true);
     updateMeta();
   }
 
-  function placeFood() {
-    const occupied = new Set(snake.map((s) => `${s.x},${s.y}`));
-    const n = config.gridSize;
-    for (let i = 0; i < 500; i += 1) {
-      const x = (Math.random() * n) | 0;
-      const y = (Math.random() * n) | 0;
-      if (!occupied.has(`${x},${y}`)) return { x, y };
-    }
-    for (let y = 0; y < n; y += 1) {
-      for (let x = 0; x < n; x += 1) {
-        if (!occupied.has(`${x},${y}`)) return { x, y };
-      }
-    }
-    return null;
+  function requestDirection(dx, dy) {
+    if (dx === 0 && dy === 0) return;
+
+    // 禁止 180° 反向：以“当前方向”为准
+    if (dx === -dir.x && dy === -dir.y) return;
+
+    // 也要避免“同帧连续输入”造成的反向：以 nextDir 为准
+    if (dx === -nextDir.x && dy === -nextDir.y) return;
+
+    nextDir = { x: dx, y: dy };
   }
 
-  function queueDir(next) {
-    if (gameOver) return;
-    const last = dirQueue.length ? dirQueue[dirQueue.length - 1] : dir;
-    if (next.x === last.x && next.y === last.y) return;
-    if (next.x === -last.x && next.y === -last.y) return; // 禁止 180° 反向
-    if (dirQueue.length >= config.maxDirQueue) return;
-    dirQueue.push(next);
-  }
-
-  function tick() {
-    if (dirQueue.length) dir = dirQueue.shift();
+  function step() {
+    dir = nextDir;
 
     const head = snake[0];
     const nx = head.x + dir.x;
     const ny = head.y + dir.y;
 
-    if (nx < 0 || nx >= config.gridSize || ny < 0 || ny >= config.gridSize) {
-      endGame('wall');
+    // 撞墙
+    if (nx < 0 || nx >= GRID || ny < 0 || ny >= GRID) {
+      gameOver();
       return;
     }
 
-    const willEat = !!food && nx === food.x && ny === food.y;
-    const bodyToCheck = willEat ? snake : snake.slice(0, -1);
-    if (bodyToCheck.some((s) => s.x === nx && s.y === ny)) {
-      endGame('self');
+    // 撞自己（尾巴是否移动取决于是否吃到）
+    const willEat = nx === food.x && ny === food.y;
+
+    // 允许“头进入当前尾巴位置”仅当尾巴这步会移动（未吃到）
+    const tail = snake[snake.length - 1];
+    const enteringTail = !willEat && nx === tail.x && ny === tail.y;
+
+    if (!enteringTail && snakeHas(nx, ny)) {
+      gameOver();
       return;
     }
 
     snake.unshift({ x: nx, y: ny });
+
     if (willEat) {
-      score += 1;
-      speed = computeSpeed(score);
-      food = placeFood();
-      if (!food) {
-        endGame('win');
-        return;
-      }
+      score += 10;
+      foodsEaten += 1;
+      recomputeSpeed();
+      placeFood();
     } else {
       snake.pop();
     }
+
     updateMeta();
   }
 
-  function stepTime(ms) {
-    if (!running || paused || gameOver) return;
-    accumulatorMs += ms;
-    const stepMs = 1000 / Math.max(1, speed);
-    while (accumulatorMs >= stepMs) {
-      tick();
-      accumulatorMs -= stepMs;
-      if (gameOver) break;
-    }
-  }
-
-  function resizeCanvas() {
+  function resize() {
     const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-    const w = Math.max(1, Math.round(rect.width * dpr));
-    const h = Math.max(1, Math.round(rect.height * dpr));
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-    metrics.dpr = dpr;
-    metrics.w = w;
-    metrics.h = h;
+    const cssSize = Math.floor(Math.min(rect.width, rect.height));
 
-    const board = Math.min(w, h);
-    const cell = Math.max(1, Math.floor(board / config.gridSize));
-    const snappedBoard = cell * config.gridSize;
-    metrics.cell = cell;
-    metrics.board = snappedBoard;
-    metrics.ox = ((w - snappedBoard) / 2) | 0;
-    metrics.oy = ((h - snappedBoard) / 2) | 0;
+    // 让画面更“移动端优先”：最大不超过 620px（桌面也合适）
+    boardCssSize = clamp(cssSize, 220, 620);
+
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    canvas.width = Math.floor(boardCssSize * dpr);
+    canvas.height = Math.floor(boardCssSize * dpr);
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // 内边距让边缘更舒服
+    inset = Math.floor(boardCssSize * 0.04);
+    const inner = boardCssSize - inset * 2;
+
+    // 保证单元格整数像素，避免抖动
+    cell = Math.floor(inner / GRID);
   }
 
-  function roundRectPath(x, y, w, h, r) {
-    const radius = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  function drawRoundedRect(x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + w - radius, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-    ctx.lineTo(x + w, y + h - radius);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-    ctx.lineTo(x + radius, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
     ctx.closePath();
   }
 
-  function drawCenteredText(title, subtitle) {
-    const { ox, oy, board } = metrics;
-    const cx = ox + board / 2;
-    const cy = oy + board / 2;
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = palette.text;
-    ctx.font =
-      `${Math.max(18, Math.floor(board * 0.08))}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
-    ctx.fillText(title, cx, cy - Math.floor(board * 0.04));
-
-    ctx.fillStyle = palette.subText;
-    ctx.font =
-      `${Math.max(12, Math.floor(board * 0.034))}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
-    ctx.fillText(subtitle, cx, cy + Math.floor(board * 0.05));
-  }
-
   function draw() {
-    const { w, h, cell, ox, oy, board } = metrics;
+    // 背景
+    ctx.fillStyle = "#0b0f1a";
+    ctx.fillRect(0, 0, boardCssSize, boardCssSize);
 
-    ctx.fillStyle = palette.bg;
-    ctx.fillRect(0, 0, w, h);
+    // 面板底
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    drawRoundedRect(0, 0, boardCssSize, boardCssSize, 18);
+    ctx.fill();
 
-    ctx.fillStyle = palette.board;
-    ctx.fillRect(ox, oy, board, board);
+    const innerSize = cell * GRID;
+    const ox = Math.floor((boardCssSize - innerSize) / 2);
+    const oy = Math.floor((boardCssSize - innerSize) / 2);
 
-    // grid
-    ctx.strokeStyle = palette.grid;
+    // 网格（轻微）
+    ctx.strokeStyle = "rgba(255,255,255,0.045)";
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 1; i < config.gridSize; i += 1) {
+    for (let i = 0; i <= GRID; i++) {
       const x = ox + i * cell + 0.5;
       const y = oy + i * cell + 0.5;
+      ctx.beginPath();
       ctx.moveTo(x, oy);
-      ctx.lineTo(x, oy + board);
-      ctx.moveTo(ox, y);
-      ctx.lineTo(ox + board, y);
-    }
-    ctx.stroke();
+      ctx.lineTo(x, oy + innerSize);
+      ctx.stroke();
 
-    if (food) {
+      ctx.beginPath();
+      ctx.moveTo(ox, y);
+      ctx.lineTo(ox + innerSize, y);
+      ctx.stroke();
+    }
+
+    // 食物
+    {
       const fx = ox + food.x * cell;
       const fy = oy + food.y * cell;
-      ctx.fillStyle = palette.food;
-      const r = cell * 0.36;
-      ctx.beginPath();
-      ctx.arc(fx + cell / 2, fy + cell / 2, r, 0, Math.PI * 2);
+      const pad = Math.max(2, Math.floor(cell * 0.16));
+      const s = cell - pad * 2;
+      ctx.fillStyle = "#ff6b6b";
+      drawRoundedRect(fx + pad, fy + pad, s, s, Math.floor(s * 0.32));
+      ctx.fill();
+
+      // 小高光
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      const hs = Math.floor(s * 0.35);
+      drawRoundedRect(fx + pad + 2, fy + pad + 2, hs, hs, Math.floor(hs * 0.45));
       ctx.fill();
     }
 
-    for (let i = snake.length - 1; i >= 0; i -= 1) {
-      const seg = snake[i];
-      const x = ox + seg.x * cell;
-      const y = oy + seg.y * cell;
-      const pad = Math.max(1, Math.floor(cell * 0.12));
-      const r = Math.max(4, Math.floor(cell * 0.22));
-      ctx.fillStyle = i === 0 ? palette.snakeHead : palette.snakeBody;
-      roundRectPath(x + pad, y + pad, cell - pad * 2, cell - pad * 2, r);
+    // 蛇
+    for (let i = 0; i < snake.length; i++) {
+      const p = snake[i];
+      const x = ox + p.x * cell;
+      const y = oy + p.y * cell;
+
+      const pad = Math.max(1, Math.floor(cell * 0.14));
+      const s = cell - pad * 2;
+
+      const t = i === 0 ? 0 : i / (snake.length - 1 || 1);
+      const baseR = Math.floor(s * 0.34);
+
+      // 颜色渐变：头更亮
+      const headColor = "rgba(183,208,255,0.96)";
+      const bodyColor = "rgba(122,168,255,0.92)";
+      ctx.fillStyle = i === 0 ? headColor : bodyColor;
+
+      // 轻微阴影
+      ctx.shadowColor = "rgba(0,0,0,0.20)";
+      ctx.shadowBlur = Math.max(0, Math.floor(cell * 0.10));
+      ctx.shadowOffsetY = 1;
+
+      drawRoundedRect(x + pad, y + pad, s, s, baseR);
       ctx.fill();
+
+      // 取消阴影避免影响其他
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+
+      if (i === 0) {
+        // 眼睛（随方向）
+        const ex = x + pad + Math.floor(s * 0.26);
+        const ey = y + pad + Math.floor(s * 0.30);
+        const e2x = x + pad + Math.floor(s * 0.62);
+        const e2y = ey;
+
+        const off = Math.floor(s * 0.10);
+        const dx = dir.x * off;
+        const dy = dir.y * off;
+
+        ctx.fillStyle = "rgba(10,12,18,0.75)";
+        drawRoundedRect(ex + dx, ey + dy, Math.max(2, (s * 0.16) | 0), Math.max(2, (s * 0.22) | 0), 3);
+        ctx.fill();
+        drawRoundedRect(e2x + dx, e2y + dy, Math.max(2, (s * 0.16) | 0), Math.max(2, (s * 0.22) | 0), 3);
+        ctx.fill();
+      }
+
+      // 尾部稍暗一点（细微）
+      if (t > 0.7) {
+        ctx.fillStyle = "rgba(0,0,0,0.08)";
+        drawRoundedRect(x + pad, y + pad, s, s, baseR);
+        ctx.fill();
+      }
     }
 
-    if (paused) {
-      ctx.fillStyle = 'rgba(0,0,0,.42)';
-      ctx.fillRect(ox, oy, board, board);
-      drawCenteredText('PAUSED', 'Press Space / Start to continue');
-    } else if (!running && !gameOver) {
-      ctx.fillStyle = 'rgba(0,0,0,.32)';
-      ctx.fillRect(ox, oy, board, board);
-      drawCenteredText('READY', 'Swipe / Arrow Keys / WASD');
+    // 状态文字（在 Ready/Paused 时提示）
+    if (status === STATUS.READY || status === STATUS.PAUSED) {
+      const text = status === STATUS.READY ? "Ready" : "Paused";
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "rgba(255,255,255,0.72)";
+      ctx.font = `700 ${Math.max(14, Math.floor(boardCssSize * 0.05))}px ui-sans-serif, system-ui`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, boardCssSize / 2, boardCssSize / 2);
+      ctx.restore();
     }
   }
 
-  function loop(ts) {
-    const dt = Math.min(50, ts - loop._lastTs);
-    loop._lastTs = ts;
+  function bindInputs() {
+    // Buttons
+    btnStart.addEventListener("click", () => startGame());
+    btnPause.addEventListener("click", () => togglePause());
+    btnRestart.addEventListener("click", () => restartGame());
 
-    if (!isVirtualTime) stepTime(dt);
+    // Overlay interactions
+    overlay.addEventListener("click", () => restartGame());
+    ovRestart.addEventListener("click", (e) => {
+      e.stopPropagation();
+      restartGame();
+    });
+    overlay.querySelector(".overlayCard").addEventListener("click", (e) => e.stopPropagation());
+
+    // Keyboard
+    window.addEventListener("keydown", (e) => {
+      const k = e.key;
+
+      if (k === " " || k === "Spacebar") {
+        e.preventDefault();
+        togglePause();
+        return;
+      }
+
+      let handled = true;
+      switch (k) {
+        case "ArrowUp":
+        case "w":
+        case "W":
+          requestDirection(0, -1);
+          break;
+        case "ArrowDown":
+        case "s":
+        case "S":
+          requestDirection(0, 1);
+          break;
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          requestDirection(-1, 0);
+          break;
+        case "ArrowRight":
+        case "d":
+        case "D":
+          requestDirection(1, 0);
+          break;
+        default:
+          handled = false;
+      }
+
+      if (handled) {
+        e.preventDefault();
+        // 如果还没开始，方向输入视作“准备开始”
+        if (status === STATUS.READY) startGame();
+      }
+    }, { passive: false });
+
+    // Touch swipe on canvas (阻止触摸滚动)
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touching = false;
+
+    canvas.addEventListener("touchstart", (e) => {
+      if (!e.touches || e.touches.length === 0) return;
+      const t = e.touches[0];
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+      touching = true;
+      // 触发时也阻止浏览器“回弹/滚动”
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", (e) => {
+      // 关键要求：必须阻止触摸滚动
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", (e) => {
+      if (!touching) return;
+      touching = false;
+
+      const changed = e.changedTouches && e.changedTouches[0];
+      if (!changed) return;
+
+      const dx = changed.clientX - touchStartX;
+      const dy = changed.clientY - touchStartY;
+
+      const adx = Math.abs(dx);
+      const ady = Math.abs(dy);
+
+      const threshold = 12;
+      if (adx < threshold && ady < threshold) return;
+
+      if (adx > ady) {
+        requestDirection(dx > 0 ? 1 : -1, 0);
+      } else {
+        requestDirection(0, dy > 0 ? 1 : -1);
+      }
+
+      if (status === STATUS.READY) startGame();
+      e.preventDefault();
+    }, { passive: false });
+  }
+
+  function loop(t) {
+    if (!lastT) lastT = t;
+    const dt = t - lastT;
+    lastT = t;
+
+    if (status === STATUS.RUNNING) {
+      acc += dt;
+      const maxSteps = 6; // 防止后台切回时“一口气走太多”
+      let steps = 0;
+      while (acc >= stepMs && steps < maxSteps && status === STATUS.RUNNING) {
+        step();
+        acc -= stepMs;
+        steps++;
+      }
+    }
+
     draw();
     requestAnimationFrame(loop);
-  }
-  loop._lastTs = performance.now();
-
-  function keyToDir(key) {
-    switch (key) {
-      case 'ArrowUp':
-      case 'w':
-      case 'W':
-        return { x: 0, y: -1 };
-      case 'ArrowDown':
-      case 's':
-      case 'S':
-        return { x: 0, y: 1 };
-      case 'ArrowLeft':
-      case 'a':
-      case 'A':
-        return { x: -1, y: 0 };
-      case 'ArrowRight':
-      case 'd':
-      case 'D':
-        return { x: 1, y: 0 };
-      default:
-        return null;
-    }
-  }
-
-  function wireControls() {
-    btnStart.addEventListener('click', () => start(), { passive: true });
-    btnPause.addEventListener('click', () => togglePause(), { passive: true });
-    btnRestart.addEventListener('click', () => restart(), { passive: true });
-
-    window.addEventListener('keydown', (e) => {
-      const key = e.key;
-      if (key === ' ' || key === 'Spacebar') {
-        e.preventDefault();
-        if (!running && !gameOver) start();
-        else togglePause();
-        return;
-      }
-      if (key === 'Enter') {
-        e.preventDefault();
-        start();
-        return;
-      }
-      if (key === 'r' || key === 'R') {
-        e.preventDefault();
-        restart();
-        return;
-      }
-
-      const next = keyToDir(key);
-      if (!next) return;
-      e.preventDefault();
-      if (!running && !gameOver) start();
-      queueDir(next);
-    });
-
-    // swipe (touch / pointer)
-    let startPt = null;
-    const onStart = (x, y) => {
-      startPt = { x, y };
-    };
-    const onEnd = (x, y) => {
-      if (!startPt) return;
-      const dx = x - startPt.x;
-      const dy = y - startPt.y;
-      startPt = null;
-      const absX = Math.abs(dx);
-      const absY = Math.abs(dy);
-      const min = config.swipeMinPx;
-      if (absX < min && absY < min) return;
-      const next = absX > absY ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
-      if (!running && !gameOver) start();
-      queueDir(next);
-    };
-
-    canvas.addEventListener(
-      'touchstart',
-      (e) => {
-        if (!e.changedTouches || !e.changedTouches.length) return;
-        e.preventDefault();
-        const t = e.changedTouches[0];
-        onStart(t.clientX, t.clientY);
-      },
-      { passive: false },
-    );
-    canvas.addEventListener(
-      'touchmove',
-      (e) => {
-        e.preventDefault();
-      },
-      { passive: false },
-    );
-    canvas.addEventListener(
-      'touchend',
-      (e) => {
-        if (!e.changedTouches || !e.changedTouches.length) return;
-        e.preventDefault();
-        const t = e.changedTouches[0];
-        onEnd(t.clientX, t.clientY);
-      },
-      { passive: false },
-    );
-    canvas.addEventListener(
-      'touchcancel',
-      (e) => {
-        e.preventDefault();
-        startPt = null;
-      },
-      { passive: false },
-    );
-
-    if ('PointerEvent' in window) {
-      let pointerId = null;
-      canvas.addEventListener(
-        'pointerdown',
-        (e) => {
-          if (e.pointerType === 'mouse') return;
-          pointerId = e.pointerId;
-          canvas.setPointerCapture(pointerId);
-          onStart(e.clientX, e.clientY);
-        },
-        { passive: true },
-      );
-      canvas.addEventListener(
-        'pointerup',
-        (e) => {
-          if (pointerId !== e.pointerId) return;
-          onEnd(e.clientX, e.clientY);
-          pointerId = null;
-        },
-        { passive: true },
-      );
-      canvas.addEventListener(
-        'pointercancel',
-        (e) => {
-          if (pointerId !== e.pointerId) return;
-          pointerId = null;
-          startPt = null;
-        },
-        { passive: true },
-      );
-    }
   }
 
   function init() {
-    resizeCanvas();
+    bindInputs();
     resetGame();
-    wireControls();
-    requestAnimationFrame(loop);
-    setTimeout(() => start(), isVirtualTime ? 0 : config.autoStartDelayMs);
-  }
 
-  if (typeof ResizeObserver !== 'undefined') {
-    const ro = new ResizeObserver(() => resizeCanvas());
-    ro.observe(canvas);
-  }
-  window.addEventListener('resize', () => resizeCanvas(), { passive: true });
-  window.addEventListener('orientationchange', () => resizeCanvas(), { passive: true });
+    const onResize = () => {
+      resize();
+      draw();
+    };
 
-  window.render_game_to_text = () =>
-    JSON.stringify({
-      mode: gameOver ? 'gameover' : paused ? 'paused' : running ? 'running' : 'ready',
-      grid: { size: config.gridSize, origin: 'top-left', x: 'right', y: 'down' },
-      snake: { head: snake[0] || null, length: snake.length, dir: { ...dir } },
-      food,
-      score,
-      speed,
+    window.addEventListener("resize", onResize, { passive: true });
+    window.addEventListener("orientationchange", onResize, { passive: true });
+
+    // 初次布局完成后再测量
+    requestAnimationFrame(() => {
+      resize();
+      draw();
     });
 
-  // Deterministic stepping for automation.
-  window.advanceTime = async (ms) => {
-    stepTime(ms);
-    draw();
-  };
+    // 页面加载后约 300ms 自动开始
+    setTimeout(() => {
+      startGame();
+    }, 300);
+
+    requestAnimationFrame(loop);
+  }
 
   init();
 })();
