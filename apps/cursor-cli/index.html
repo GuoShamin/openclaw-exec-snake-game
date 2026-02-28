@@ -1,52 +1,55 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0f1a" />
-  <title>贪吃蛇</title>
-  <link rel="stylesheet" href="./style.css" />
-</head>
-<body>
-  <main class="app">
-    <header class="top">
-      <div class="brand">
-        <div class="title">贪吃蛇</div>
-        <div class="hint">桌面：方向键/WASD，空格暂停；移动端：画布内滑动</div>
-      </div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1220" />
+    <title>Canvas 贪吃蛇</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app" aria-label="Canvas 贪吃蛇">
+      <header class="topbar">
+        <div class="stat">
+          <span class="label">Score</span>
+          <span id="score" class="value" aria-live="polite">0</span>
+        </div>
+        <div class="stat">
+          <span class="label">Speed</span>
+          <span id="speed" class="value" aria-live="polite">1.0x</span>
+        </div>
+        <div class="stat">
+          <span class="label">Status</span>
+          <span id="status" class="value" aria-live="polite">Ready</span>
+        </div>
+      </header>
 
-      <div class="meta" role="status" aria-live="polite">
-        <div class="pill"><span class="k">Score</span><span id="mScore" class="v">0</span></div>
-        <div class="pill"><span class="k">Speed</span><span id="mSpeed" class="v">0</span></div>
-        <div class="pill"><span class="k">Status</span><span id="mStatus" class="v">Ready</span></div>
-      </div>
+      <section class="stage" aria-label="游戏画布区域">
+        <canvas id="game" class="canvas" width="600" height="600" aria-label="贪吃蛇画布"></canvas>
+      </section>
 
-      <div class="controls">
+      <section class="controls" aria-label="控制按钮">
         <button id="btnStart" class="btn primary" type="button">Start</button>
         <button id="btnPause" class="btn" type="button">Pause</button>
-        <button id="btnRestart" class="btn danger" type="button">Restart</button>
-      </div>
-    </header>
+        <button id="btnRestart" class="btn" type="button">Restart</button>
+      </section>
 
-    <section class="stage">
-      <div class="canvasWrap">
-        <canvas id="game" aria-label="贪吃蛇游戏画布"></canvas>
-      </div>
-      <div class="footnote">提示：游戏开始后会自动加速；禁止 180° 反向。</div>
-    </section>
-  </main>
+      <p class="hint" aria-label="操作提示">
+        桌面：方向键/WASD 转向，Space 暂停/继续。移动端：在画布上滑动转向。
+      </p>
+    </main>
 
-  <div id="overlay" class="overlay" aria-hidden="true">
-    <div class="overlayCard" role="dialog" aria-modal="true" aria-labelledby="ovTitle">
-      <div class="ovBadge">Game Over</div>
-      <h2 id="ovTitle">游戏结束</h2>
-      <p class="ovText">本局得分：<span id="ovScore">0</span></p>
-      <button id="ovRestart" class="btn primary wide" type="button">Restart</button>
-      <div class="ovSub">点击遮罩也可重开</div>
+    <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-label="游戏结束遮罩" hidden>
+      <div class="overlay-card" role="document">
+        <div class="overline">Game Over</div>
+        <div class="overlay-score">
+          Score <span id="finalScore" class="overlay-score-value">0</span>
+        </div>
+        <button id="btnOverlayRestart" class="btn primary wide" type="button">Restart</button>
+        <div class="overlay-tip">点遮罩或按钮即可重开</div>
+      </div>
     </div>
-  </div>
 
-  <script src="./main.js" defer></script>
-</body>
+    <script src="./main.js" defer></script>
+  </body>
 </html>
-
